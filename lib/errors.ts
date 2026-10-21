@@ -1,4 +1,5 @@
 import { ZodError } from 'zod';
+import { GATE_WINDOW_MS, MAX_UPLOAD_BYTES, MAX_USER_PHOTOS, SESSION_DAILY_UNITS } from './limits';
 import type { ActionResult, ApiError, ErrorCode, NoticeCode } from './types';
 
 type ErrorDef = {
@@ -11,14 +12,13 @@ type ErrorDef = {
   internal?: true;
 };
 
-// TODO(limits): the numbers in this copy (20 pictures, 25 MB, 4 photos) mirror lib/limits.ts once it exists.
 export const ERRORS = {
   ACCESS_DENIED: { status: 401, message: 'Enter the access code to continue.', nextStep: 'Go to the sign-in page.' },
   INVALID_ACCESS_CODE: { status: 400, message: "That code didn't work.", nextStep: 'Check the code and try again.' },
-  TOO_MANY_ATTEMPTS: { status: 429, message: 'Too many tries.', nextStep: 'Wait 15 minutes and try again.' },
+  TOO_MANY_ATTEMPTS: { status: 429, message: 'Too many tries.', nextStep: `Wait ${GATE_WINDOW_MS / 60_000} minutes and try again.` },
   RATE_LIMITED_SESSION: {
     status: 429,
-    message: "You've reached today's limit of 20 pictures.",
+    message: `You've reached today's limit of ${SESSION_DAILY_UNITS} pictures.`,
     nextStep: 'Come back tomorrow.',
   },
   RATE_LIMITED_GLOBAL: {
@@ -38,7 +38,7 @@ export const ERRORS = {
   },
   FILE_TOO_LARGE: {
     status: 413,
-    message: 'That photo is over 25 MB.',
+    message: `That photo is over ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.`,
     nextStep: 'Choose a smaller photo, or take a screenshot of it.',
   },
   IMAGE_DECODE_FAILED: {
@@ -64,7 +64,7 @@ export const ERRORS = {
   },
   TOO_MANY_PHOTOS: {
     status: 400,
-    message: 'You can add up to 4 photos of yourself.',
+    message: `You can add up to ${MAX_USER_PHOTOS} photos of yourself.`,
     nextStep: 'Remove a photo to add another.',
   },
   UPLOAD_NOT_FOUND: { status: 404, message: "We can't find that photo.", nextStep: 'Add the photo again.' },
@@ -90,6 +90,13 @@ export const ERRORS = {
     status: 502,
     message: "We couldn't fix the face this time. Your picture is unchanged.",
     nextStep: 'Keep the current version or tap Try again.',
+  },
+  /** /api/blob/upload in local-storage mode: tells the browser to use /api/dev-upload instead. */
+  DIRECT_UPLOAD_UNAVAILABLE: {
+    status: 404,
+    message: 'Direct upload is not configured.',
+    nextStep: 'Use the local upload route.',
+    internal: true,
   },
   WEBHOOK_UNAUTHORIZED: { status: 401, message: 'Not authorized.', nextStep: 'No action needed.', internal: true },
   CRON_UNAUTHORIZED: { status: 401, message: 'Not authorized.', nextStep: 'No action needed.', internal: true },

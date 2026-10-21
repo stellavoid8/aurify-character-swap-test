@@ -2,7 +2,7 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   // Native modules: load from node_modules at runtime instead of bundling.
-  serverExternalPackages: ['sharp', 'onnxruntime-node'],
+  serverExternalPackages: ['sharp', 'heic-convert', 'onnxruntime-node'],
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '*.public.blob.vercel-storage.com' },
