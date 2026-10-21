@@ -1,0 +1,1 @@
+# aurify-character-swap-test
