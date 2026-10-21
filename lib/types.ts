@@ -10,3 +10,22 @@ export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: ApiErr
 
 /** JSON body of every Route Handler response. */
 export type ApiResponse<T> = { data: T } | { error: ApiError };
+
+/** A detected face. Coordinates are normalized 0–1 to the image size. */
+export type FaceBox = {
+  box: [x: number, y: number, w: number, h: number];
+  score: number;
+  /** Five landmarks: eyes, nose tip, mouth corners. */
+  landmarks: [number, number][];
+};
+
+/** Mismatches between the template subject and the user, stored on `jobs.flags`. */
+export type JobFlags = {
+  crossGender: boolean;
+  crossAge: boolean;
+  multiPerson: boolean;
+  subjectLabel: string | null;
+};
+
+/** Per-stage timing on `job_rounds.stage_timings`. */
+export type StageTimings = Partial<Record<string, { startedAt: string; endedAt: string | null; ms: number | null }>>;
