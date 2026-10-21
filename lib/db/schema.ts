@@ -12,7 +12,7 @@ import {
   uuid,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
-import type { FaceBox, JobFlags, NoticeCode, StageTimings } from '../types';
+import type { FaceBox, JobFlags, JobNotice, StageTimings } from '../types';
 
 /**
  * The whole data model. Drizzle migrations generated from this file are the only schema source.
@@ -81,7 +81,7 @@ export const jobs = pgTable(
     currentRound: integer('current_round').notNull().default(0),
     /** Plain uuid with no FK: candidates reference jobs, so an FK here would be a cycle on insert. */
     chosenCandidateId: uuid('chosen_candidate_id'),
-    notices: jsonb('notices').$type<NoticeCode[]>().notNull().default([]),
+    notices: jsonb('notices').$type<JobNotice[]>().notNull().default([]),
     errorCode: text('error_code'),
     errorMessage: text('error_message'),
     deadlineAt: timestamptz('deadline_at'),
