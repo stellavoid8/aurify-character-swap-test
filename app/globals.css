@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Components use only these; no hex values or arbitrary colors elsewhere.
+ * Default palette, radii and shadows are cleared so only the tokens below exist.
+ */
+@theme {
+  --color-*: initial;
+  --color-bg: #fafaf7;
+  --color-surface: #ffffff;
+  --color-surface-2: #f2f1ec;
+  --color-ink: #17171a;
+  --color-ink-muted: #5d5d66;
+  --color-line: #e4e2da;
+  --color-accent: #3a5bff;
+  --color-accent-hover: #2c47d9;
+  --color-accent-ink: #ffffff;
+  --color-accent-soft: #e8ecff;
+  --color-success: #1f8a4c;
+  --color-success-soft: #e5f4ea;
+  --color-danger: #c2362b;
+  --color-danger-soft: #fbe9e7;
+  --color-warning: #8a5a00;
+  --color-warning-soft: #fff3d6;
+
+  /* Fallbacks only: next/font sets --font-sans (Inter) and --font-display (Bricolage Grotesque) on <html>. */
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-display: ui-sans-serif, system-ui, sans-serif;
+
+  /* Pair text-display / text-title with font-display. */
+  --text-display: 2rem;
+  --text-display--line-height: 2.375rem;
+  --text-display--font-weight: 700;
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.875rem;
+  --text-title--font-weight: 600;
+  --text-heading: 1.125rem;
+  --text-heading--line-height: 1.5rem;
+  --text-heading--font-weight: 600;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5rem;
+  --text-body--font-weight: 400;
+  --text-small: 0.875rem;
+  --text-small--line-height: 1.25rem;
+  --text-small--font-weight: 400;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-caption--font-weight: 500;
+
+  --radius-*: initial;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 9999px;
+
+  --shadow-*: initial;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.06);
+}
+
+@layer base {
+  body {
+    @apply bg-bg text-ink font-sans;
+  }
+}
