@@ -19,6 +19,9 @@ export type FaceBox = {
   landmarks: [number, number][];
 };
 
+/** A non-blocking notice stored on `jobs.notices`; `params` fill the `{name}` placeholders in `NOTICES`. */
+export type JobNotice = { code: NoticeCode; params?: Record<string, string | number> };
+
 /** Mismatches between the template subject and the user, stored on `jobs.flags`. */
 export type JobFlags = {
   crossGender: boolean;
