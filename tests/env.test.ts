@@ -82,6 +82,13 @@ describe('lib/env', () => {
     await expect(loadEnv()).resolves.toMatchObject({ useMockFal: true });
   });
 
+  it('does not require DATABASE_URL during next build', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('NEXT_PHASE', 'phase-production-build');
+    vi.stubEnv('DATABASE_URL', undefined);
+    await expect(loadEnv()).resolves.toMatchObject({ DATABASE_URL: expect.stringMatching(/^postgres:\/\//) });
+  });
+
   it('rejects malformed numbers and enums', async () => {
     vi.stubEnv('RETENTION_DAYS', 'ten');
     vi.stubEnv('FACE_ENGINE', 'gpu');

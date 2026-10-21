@@ -29,3 +29,14 @@ export type JobFlags = {
 
 /** Per-stage timing on `job_rounds.stage_timings`. */
 export type StageTimings = Partial<Record<string, { startedAt: string; endedAt: string | null; ms: number | null }>>;
+
+/** A detected face in pixel coordinates of the image it was found in. Normalize with `toFaceBox` before storing. */
+export type Face = {
+  box: [x: number, y: number, w: number, h: number];
+  score: number;
+  /** Five landmarks, as SCRFD orders them: eye on the image's left, other eye, nose tip, mouth corner on the image's left, other mouth corner. */
+  landmarks: [number, number][];
+};
+
+/** Decoded pixels: tightly packed RGB, 3 bytes per pixel, row-major. */
+export type RgbImage = { data: Uint8Array; width: number; height: number };

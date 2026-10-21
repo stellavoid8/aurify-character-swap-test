@@ -47,8 +47,12 @@ export const ETA_MIN_SAMPLES = 5;
 
 // Face checks
 export const FACE_MIN_SCORE = 0.5;
-/** Face box area as a fraction of the image area. */
+/** Face box area as a fraction of the image area. Smaller confident faces are treated as background people. */
 export const FACE_MIN_AREA_FRAC = 0.015;
+/** SCRFD: candidate faces below this confidence are dropped before NMS. */
+export const FACE_DETECT_SCORE = 0.4;
+/** SCRFD: overlapping detections above this IoU are merged by NMS. */
+export const FACE_NMS_IOU = 0.4;
 export const FACE_MIN_SIDE_PX = 64;
 /** Shorter face-box side as a fraction of the image's shorter side. */
 export const FACE_MIN_SIDE_FRAC = 0.06;
