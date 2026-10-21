@@ -34,6 +34,7 @@ const wholeNumber = (fallback: number) =>
     .default(fallback);
 
 const postgresUrl = /^postgres(ql)?:\/\//;
+const BUILD_DATABASE_URL = 'postgres://build-placeholder.invalid:5432/unused';
 
 const schema = z.object({
   DATABASE_URL: z
@@ -68,8 +69,12 @@ function loadEnv() {
   }
 
   const isProduction = process.env.NODE_ENV === 'production';
-  // `next build` also runs with NODE_ENV=production; secrets are enforced when the server starts, not while compiling.
-  const enforceProduction = isProduction && process.env.NEXT_PHASE !== 'phase-production-build';
+  // `next build` imports server modules to collect page data but never queries the database or calls a provider,
+  // so secrets and DATABASE_URL are enforced when the server starts, not while compiling.
+  const isBuild = process.env.NEXT_PHASE === 'phase-production-build';
+  const enforceProduction = isProduction && !isBuild;
+  // The postgres client connects lazily, so this placeholder is never dialled during the build.
+  if (isBuild) raw.DATABASE_URL ??= BUILD_DATABASE_URL;
 
   const problems: string[] = [];
   const parsed = schema.safeParse(raw);
