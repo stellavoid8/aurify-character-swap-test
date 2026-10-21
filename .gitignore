@@ -1,0 +1,28 @@
+# dependencies
+/node_modules
+
+# next.js / build
+/.next
+/out
+next-env.d.ts
+*.tsbuildinfo
+/.vercel
+
+# testing
+/coverage
+/test-results
+/playwright-report
+/bakeoff/out
+
+# env (only the example is committed)
+.env*
+!.env.example
+
+# fetched model files and local uploads
+/models
+/public/models/mediapipe
+/public/uploads
+
+# misc
+.DS_Store
+*.log
