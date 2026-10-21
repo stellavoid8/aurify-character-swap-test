@@ -56,3 +56,14 @@ export const FACE_MIN_SIDE_FRAC = 0.06;
 export const MISMATCH_COSINE = 0.35;
 /** Identity scores closer than this are a tie; action score decides. */
 export const TIE_BREAK_DELTA = 0.03;
+
+// Providers
+/** Output cap for one vision-LLM call (template analysis or action rating). */
+export const AI_MAX_TOKENS = 2000;
+/** Wait before the single retry of a rate-limited or dropped Anthropic call. */
+export const AI_RETRY_DELAY_MS = 2000;
+/** Mock fal sends its webhook after a random delay in this range. */
+export const MOCK_FAL_DELAY_MIN_MS = 2000;
+export const MOCK_FAL_DELAY_MAX_MS = 4000;
+/** Per-attempt timeout for one Anthropic call. */
+export const AI_TIMEOUT_MS = 90_000;

@@ -18,6 +18,8 @@
     "db:seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.0.0",
+    "@fal-ai/client": "^1.10.1",
     "@vercel/blob": "^2.8.2",
     "drizzle-orm": "^0.45.4",
     "heic-convert": "^2.1.0",
