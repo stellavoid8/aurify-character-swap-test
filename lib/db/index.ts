@@ -1,3 +1,4 @@
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { env } from '../env';
@@ -15,6 +16,9 @@ function createDb() {
 }
 
 export type DB = ReturnType<typeof createDb>;
+
+/** `db` or a transaction from `db.transaction(...)`, for helpers that must join the caller's transaction. */
+export type Executor = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 // Reuse one pool across dev hot reloads instead of opening a new one per edit.
 const globalForDb = globalThis as unknown as { __csDb?: DB };
