@@ -11,7 +11,7 @@ type SpinnerProps = {
 };
 
 export function Spinner({ size = 'md', label, className }: SpinnerProps) {
-  const icon = <LoaderCircle aria-hidden className={cn('shrink-0 animate-spin', SIZES[size], className)} />;
+  const icon = <LoaderCircle aria-hidden className={cn('shrink-0 animate-spin motion-reduce:animate-none', SIZES[size], className)} />;
   if (!label) return icon;
   return (
     <span role="status" className="inline-flex">

@@ -1,7 +1,7 @@
 import 'server-only';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { del, put } from '@vercel/blob';
+import { del, list, put } from '@vercel/blob';
 import { env, useLocalStorage } from './env';
 import { AppError } from './errors';
 import { FETCH_TIMEOUT_MS, MAX_UPLOAD_BYTES } from './limits';
@@ -110,8 +110,11 @@ export async function fetchObject(url: string): Promise<Buffer> {
   return bytes;
 }
 
-/** Deletes our stored objects. URLs we don't own (other hosts, malformed) are ignored. Missing files are fine. */
-export async function deleteObjects(urls: string[]): Promise<void> {
+/**
+ * Deletes our stored objects. URLs we don't own (other hosts, malformed) are ignored. Missing files are fine.
+ * Returns how many owned objects it targeted.
+ */
+export async function deleteObjects(urls: string[]): Promise<number> {
   const blobUrls: string[] = [];
   const localFiles: string[] = [];
   for (const value of urls) {
@@ -138,6 +141,37 @@ export async function deleteObjects(urls: string[]): Promise<void> {
       }),
     ),
   );
+  return (useLocalStorage ? 0 : blobUrls.length) + localFiles.length;
+}
+
+export type StoredObject = { url: string; pathname: string; uploadedAt: Date };
+
+/** Every stored object whose pathname starts with `prefix`. Local mode walks public/uploads and uses file mtimes. */
+export async function* listObjects(prefix: string): AsyncGenerator<StoredObject> {
+  if (!useLocalStorage) {
+    let cursor: string | undefined;
+    do {
+      const page = await list({ prefix, cursor, limit: 1000, token: env.BLOB_READ_WRITE_TOKEN });
+      for (const blob of page.blobs) yield { url: blob.url, pathname: blob.pathname, uploadedAt: blob.uploadedAt };
+      cursor = page.hasMore ? page.cursor : undefined;
+    } while (cursor);
+    return;
+  }
+  let entries;
+  try {
+    entries = await readdir(LOCAL_ROOT, { recursive: true, withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const file = path.join(entry.parentPath, entry.name);
+    const pathname = path.relative(LOCAL_ROOT, file).split(path.sep).join('/');
+    if (!pathname.startsWith(prefix)) continue;
+    const { mtime } = await stat(file);
+    yield { url: `${env.APP_URL}/uploads/${pathname}`, pathname, uploadedAt: mtime };
+  }
 }
 
 /**

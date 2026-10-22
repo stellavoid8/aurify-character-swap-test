@@ -44,6 +44,11 @@ export async function retentionDays(): Promise<number> {
   return env.RETENTION_DAYS;
 }
 
+/** The cleanup cron deletes expired jobs and orphan uploads this many at a time (also the Blob delete batch). */
+export const CLEANUP_BATCH_SIZE = 100;
+/** Uploads no job uses, and leftover raw photos, are deleted once they are this old. */
+export const ORPHAN_MAX_AGE_MS = 24 * 60 * 60_000;
+
 // Waiting screen ETA: fall back to the default until enough recent rounds exist.
 export const DEFAULT_ETA_MS = 90_000;
 export const ETA_MIN_SAMPLES = 5;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { ErrorPanel } from '@/components/ui/ErrorPanel';
 import { Notice } from '@/components/ui/Notice';
@@ -111,34 +111,47 @@ export function JobScreen({ initial }: { initial: JobView }) {
   }, [active, jobId]);
 
   const lostNotice = connectionLost && <Notice tone="warning">Connection lost. We&apos;ll keep trying.</Notice>;
+  // Stays mounted while the screen below swaps, so screen readers hear when the picture is done.
+  // Failures need no entry here: ErrorPanel is an alert itself.
+  const announcer = (
+    <p aria-live="polite" className="sr-only">
+      {!active && view.status === 'succeeded' ? 'Your picture is ready.' : ''}
+    </p>
+  );
 
+  let screen: ReactNode;
   if (active && view.stage !== 'refining') {
-    return (
+    screen = (
       <div className="mx-auto flex w-full max-w-md flex-col gap-6">
         {lostNotice}
         <WaitingScreen view={view} receivedAt={receivedAt} />
       </div>
     );
-  }
-
-  // One element for refining and succeeded, so the result screen keeps its state across the round.
-  if (active || view.status === 'succeeded') {
-    return <ResultView view={view} onRoundStarted={onRoundStarted} onRetry={retry} retrying={retrying} notice={lostNotice} />;
+  } else if (active || view.status === 'succeeded') {
+    // One element for refining and succeeded, so the result screen keeps its state across the round.
+    screen = <ResultView view={view} onRoundStarted={onRoundStarted} onRetry={retry} retrying={retrying} notice={lostNotice} />;
+  } else {
+    screen = (
+      <div className="mx-auto flex w-full max-w-md flex-col items-center gap-2">
+        <ErrorPanel
+          code={view.error?.code ?? 'INTERNAL_ERROR'}
+          onRetry={view.canRetry ? retry : undefined}
+          retryLoading={retrying}
+        />
+        {!view.canRetry && view.unitsLeftToday === 0 && (
+          <Notice tone="warning" title={ERRORS.RATE_LIMITED_SESSION.message} className="w-full">
+            {ERRORS.RATE_LIMITED_SESSION.nextStep}
+          </Notice>
+        )}
+        <StartOverLink />
+      </div>
+    );
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col items-center gap-2">
-      <ErrorPanel
-        code={view.error?.code ?? 'INTERNAL_ERROR'}
-        onRetry={view.canRetry ? retry : undefined}
-        retryLoading={retrying}
-      />
-      {!view.canRetry && view.unitsLeftToday === 0 && (
-        <Notice tone="warning" title={ERRORS.RATE_LIMITED_SESSION.message} className="w-full">
-          {ERRORS.RATE_LIMITED_SESSION.nextStep}
-        </Notice>
-      )}
-      <StartOverLink />
-    </div>
+    <>
+      {announcer}
+      {screen}
+    </>
   );
 }
