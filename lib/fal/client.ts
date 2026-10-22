@@ -64,6 +64,15 @@ export async function submitToQueue({
   }
 }
 
+/**
+ * Puts a file on fal's own storage and returns its public URL. For scripts run without Vercel Blob,
+ * whose local-disk URLs neither fal nor Claude can fetch. The app itself always uses lib/storage.
+ */
+export async function uploadToFalStorage(bytes: Buffer, contentType: string): Promise<string> {
+  if (useMockFal) throw new Error('uploadToFalStorage needs FAL_KEY');
+  return fal.storage.upload(new Blob([new Uint8Array(bytes)], { type: contentType }));
+}
+
 /** Blocking call for scripts. Writes one provider_calls row. Mock mode echoes the first input image. */
 export async function runSync({
   model,
