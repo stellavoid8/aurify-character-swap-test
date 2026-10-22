@@ -1,21 +1,226 @@
-import { ButtonLink } from '@/components/ui/Button';
-import { StepIndicator } from '@/components/ui/StepIndicator';
-import type { JobView } from '@/lib/types';
+'use client';
 
-// TODO(prompt 14): the full result screen (compare, other versions, download, share, fix face).
-export function ResultView({ view }: { view: JobView }) {
-  const chosen = view.candidates.find((c) => c.id === view.chosenCandidateId);
+import { Download, ImageOff, RefreshCw, ScanFace } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { Button, buttonStyles } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { ErrorPanel } from '@/components/ui/ErrorPanel';
+import { Notice } from '@/components/ui/Notice';
+import { StepIndicator } from '@/components/ui/StepIndicator';
+import { cn } from '@/lib/cn';
+import { ERRORS } from '@/lib/errors';
+import type { CandidateView, FaceBox, JobView } from '@/lib/types';
+import { chooseCandidate } from '@/server/jobs/actions';
+import { CandidateStrip, stripOrder } from './CandidateStrip';
+import { ShareButton } from './ShareButton';
+import { StartOverLink } from './StartOverLink';
+import { SubjectNotice } from './SubjectNotice';
+
+const IMAGE = 'block w-full max-h-[70vh] rounded-md bg-surface-2 object-contain md:max-h-[60vh]';
+const BOX_STROKES = [
+  { color: 'stroke-accent-ink', strokeWidth: 5 },
+  { color: 'stroke-accent', strokeWidth: 2 },
+] as const;
+
+type CompareCellProps = {
+  caption: string;
+  url: string | null;
+  alt: string;
+  className?: string;
+  /** Template only: the swapped person, outlined. Needs the image's pixel size to line up. */
+  box?: { box: FaceBox['box']; width: number; height: number } | null;
+};
+
+function CompareCell({ caption, url, alt, className, box }: CompareCellProps) {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col items-center gap-6 text-center">
-      <StepIndicator current={3} />
-      <h1 className="font-display text-title">Your picture is ready</h1>
-      {chosen?.imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element -- stored results of unknown size
-        <img src={chosen.imageUrl} alt="Your picture" className="w-full rounded-lg bg-surface-2 object-contain" />
+    <Card as="figure" className={cn('flex min-w-0 flex-col gap-2', className)}>
+      <figcaption className="text-caption text-ink-muted">{caption}</figcaption>
+      {url ? (
+        <div className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element -- stored photos of unknown size */}
+          <img src={url} alt={alt} width={box?.width} height={box?.height} className={IMAGE} />
+          {box && (
+            // Same aspect fit as object-contain, so the box lands on the face at any cell size.
+            <svg
+              aria-hidden
+              viewBox={`0 0 ${box.width} ${box.height}`}
+              preserveAspectRatio="xMidYMid meet"
+              className="pointer-events-none absolute inset-0 size-full"
+            >
+              {/* A light halo under the accent line keeps the marker visible on dark or blue photos. */}
+              {BOX_STROKES.map(({ color, strokeWidth }) => (
+                <rect
+                  key={color}
+                  x={box.box[0] * box.width}
+                  y={box.box[1] * box.height}
+                  width={box.box[2] * box.width}
+                  height={box.box[3] * box.height}
+                  rx={4}
+                  fill="none"
+                  strokeWidth={strokeWidth}
+                  vectorEffect="non-scaling-stroke"
+                  className={color}
+                />
+              ))}
+            </svg>
+          )}
+        </div>
+      ) : (
+        <div role="img" aria-label={alt} className="flex aspect-square items-center justify-center rounded-md bg-surface-2 text-ink-muted">
+          <ImageOff aria-hidden className="size-6" />
+        </div>
       )}
-      <ButtonLink href="/" size="lg">
-        Make another
-      </ButtonLink>
+    </Card>
+  );
+}
+
+/** The job's choice, else the latest round's best match, else the newest finished version. */
+function defaultChoice(view: JobView, items: CandidateView[]): string | null {
+  if (items.some((c) => c.id === view.chosenCandidateId)) return view.chosenCandidateId;
+  return (items.find((c) => c.round === items[0]?.round && c.rank === 1) ?? items[0])?.id ?? null;
+}
+
+/** Step 3 once the job succeeded: the comparison, Download and Share, and the other versions. */
+export function ResultView({ view }: { view: JobView }) {
+  const items = stripOrder(view.candidates);
+  const [chosenId, setChosenId] = useState(() => defaultChoice(view, items));
+  // A new view from the server (another round finished) resets the choice to what it says.
+  const [serverChoice, setServerChoice] = useState(view.chosenCandidateId);
+  if (serverChoice !== view.chosenCandidateId) {
+    setServerChoice(view.chosenCandidateId);
+    setChosenId(defaultChoice(view, items));
+  }
+
+  // Choices are saved one at a time, latest wins; a failure reverts only if no newer choice is waiting.
+  const saved = useRef(chosenId);
+  const queued = useRef<string | null>(null);
+  const saving = useRef(false);
+
+  async function flush() {
+    if (saving.current) return;
+    saving.current = true;
+    while (queued.current) {
+      const candidateId = queued.current;
+      queued.current = null;
+      const result = await chooseCandidate({ jobId: view.id, candidateId }).catch(() => null);
+      if (result?.ok) saved.current = candidateId;
+      else if (!queued.current) {
+        setChosenId(saved.current);
+        toast.error(result?.error.message ?? ERRORS.INTERNAL_ERROR.message);
+      }
+    }
+    saving.current = false;
+  }
+
+  function choose(candidateId: string) {
+    setChosenId(candidateId);
+    if (candidateId === saved.current && !saving.current) return;
+    queued.current = candidateId;
+    void flush();
+  }
+
+  const chosenIndex = items.findIndex((c) => c.id === chosenId);
+  const chosen = items[chosenIndex];
+  if (!chosen?.imageUrl) {
+    return (
+      <div className="mx-auto flex w-full max-w-md flex-col items-center gap-2">
+        <ErrorPanel code="GENERATION_FAILED" retryDisabled />
+        <StartOverLink />
+      </div>
+    );
+  }
+
+  const { template } = view;
+  const multiPerson = template.peopleCount !== null && template.peopleCount > 1;
+  const userPhoto = view.userPhotos.find((p) => p.isReference) ?? view.userPhotos[0];
+  const notices = view.notices.filter((n) => !(multiPerson && n.code === 'TEMPLATE_MULTIPLE_PEOPLE'));
+  const downloadUrl = `/api/jobs/${view.id}/download?candidate=${chosen.id}`;
+  const filename = `character-swap-${view.id.slice(0, 8)}-${chosen.rank ?? 1}.jpg`;
+
+  return (
+    <div className="flex min-w-0 flex-col gap-6">
+      <div className="flex justify-center">
+        <StepIndicator current={3} />
+      </div>
+      <h1 className="text-center font-display text-title md:text-left">Here&apos;s your picture</h1>
+
+      {/* Result first in reading order and on phones; last (on the right) on desktop. */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+        <CompareCell
+          caption="Result"
+          url={chosen.imageUrl}
+          alt={`Your result, version ${chosenIndex + 1}`}
+          className="col-span-2 md:order-last md:col-span-1 md:ring-2 md:ring-accent"
+        />
+        <CompareCell
+          caption="Template"
+          url={template.url}
+          alt="Template photo"
+          box={
+            multiPerson && template.subjectBox && template.width > 0 && template.height > 0
+              ? { box: template.subjectBox, width: template.width, height: template.height }
+              : null
+          }
+        />
+        <CompareCell caption="Your photo" url={userPhoto?.url ?? null} alt="Your photo" />
+      </div>
+
+      <SubjectNotice peopleCount={template.peopleCount} subjectLabel={template.subjectLabel} />
+      {notices.map((n, i) => (
+        <Notice key={`${n.code}-${i}`} tone="info">
+          {n.message}
+        </Notice>
+      ))}
+
+      <div className="flex flex-col gap-3 md:flex-row">
+        <a href={downloadUrl} download={filename} className={buttonStyles({ size: 'lg' })}>
+          <Download aria-hidden className="size-4" />
+          Download
+        </a>
+        <ShareButton downloadUrl={downloadUrl} imageUrl={chosen.imageUrl} filename={filename} />
+      </div>
+
+      <section aria-labelledby="not-quite-right" className="flex flex-col gap-3 rounded-lg bg-surface-2 p-4 md:p-6">
+        <h2 id="not-quite-right" className="text-heading">
+          Not quite right?
+        </h2>
+        {view.unitsLeftToday === 0 ? (
+          <Notice tone="warning" title={ERRORS.RATE_LIMITED_SESSION.message}>
+            {ERRORS.RATE_LIMITED_SESSION.nextStep}
+          </Notice>
+        ) : (
+          <>
+            <p className="text-small text-ink-muted">
+              Try again makes 3 new versions. Fix the face sharpens your likeness on this one.
+            </p>
+            {/* TODO(prompt 15): wire Try again to retryJob and Fix the face to refineCandidate. */}
+            <span id="coming-soon" className="sr-only">
+              Coming soon
+            </span>
+            <div className="flex flex-col gap-3 md:flex-row">
+              <span title="Coming soon" className="w-full md:w-auto">
+                <Button variant="secondary" size="lg" disabled aria-describedby="coming-soon" className="w-full">
+                  <RefreshCw aria-hidden className="size-4" />
+                  Try again
+                </Button>
+              </span>
+              <span title="Coming soon" className="w-full md:w-auto">
+                <Button variant="secondary" size="lg" disabled aria-describedby="coming-soon" className="w-full">
+                  <ScanFace aria-hidden className="size-4" />
+                  Fix the face
+                </Button>
+              </span>
+            </div>
+          </>
+        )}
+      </section>
+
+      <CandidateStrip candidates={view.candidates} chosenId={chosen.id} onChoose={choose} />
+
+      <div className="flex justify-center">
+        <StartOverLink />
+      </div>
     </div>
   );
 }

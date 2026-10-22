@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ButtonLink } from '@/components/ui/Button';
 import { ErrorPanel } from '@/components/ui/ErrorPanel';
 import { Notice } from '@/components/ui/Notice';
 import { POLL_BACKOFF_MS, POLL_INTERVAL_MS, POLL_MAX_ERRORS } from '@/lib/limits';
 import type { ApiResponse, JobView } from '@/lib/types';
 import { ResultView } from './ResultView';
+import { StartOverLink } from './StartOverLink';
 import { WaitingScreen } from './WaitingScreen';
 
 const isActive = (view: JobView) => view.status === 'queued' || view.status === 'running';
@@ -86,9 +86,7 @@ export function JobScreen({ initial }: { initial: JobView }) {
     <div className="mx-auto flex w-full max-w-md flex-col items-center gap-2">
       {/* TODO(prompt 15): wire Try again to retryJob. */}
       <ErrorPanel code={view.error?.code ?? 'INTERNAL_ERROR'} retryDisabled />
-      <ButtonLink href="/" variant="ghost">
-        Start a new picture
-      </ButtonLink>
+      <StartOverLink />
     </div>
   );
 }
