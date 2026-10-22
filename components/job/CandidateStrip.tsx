@@ -1,8 +1,10 @@
 'use client';
 
+import Image from 'next/image';
 import { Fragment, useRef, type KeyboardEvent } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/cn';
+import { skipOptimizer } from '@/lib/image-src';
 import type { CandidateView } from '@/lib/types';
 
 type CandidateStripProps = {
@@ -90,10 +92,13 @@ export function CandidateStrip({ candidates, chosenId, onChoose }: CandidateStri
                 onKeyDown={(event) => onKeyDown(event, index)}
                 className="flex shrink-0 snap-start flex-col items-center gap-1.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- stored results of unknown size */}
-                <img
+                <Image
                   src={c.imageUrl!}
+                  unoptimized={skipOptimizer(c.imageUrl!)}
                   alt={`Your result, version ${index + 1}${isEarlier(c) ? ', earlier' : ''}`}
+                  width={96}
+                  height={96}
+                  sizes="(min-width: 768px) 96px, 80px"
                   className={cn('size-20 rounded-md bg-surface-2 object-cover md:size-24', selected && 'ring-2 ring-accent')}
                 />
                 {best && <Badge tone="accent">Best match</Badge>}

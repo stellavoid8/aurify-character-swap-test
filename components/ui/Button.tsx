@@ -18,7 +18,7 @@ type StyleProps = { variant?: keyof typeof VARIANTS; size?: keyof typeof SIZES }
 
 export function buttonStyles({ variant = 'primary', size = 'md' }: StyleProps = {}): string {
   return cn(
-    'inline-flex shrink-0 items-center justify-center gap-2 rounded-pill text-body font-semibold transition-colors',
+    'inline-flex shrink-0 items-center justify-center gap-2 rounded-pill text-body font-semibold transition-colors motion-reduce:transition-none',
     'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
     'disabled:cursor-not-allowed disabled:opacity-50',
     VARIANTS[variant],

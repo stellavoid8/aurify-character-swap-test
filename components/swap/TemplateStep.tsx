@@ -126,7 +126,8 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
                   src={previewSrc}
                   alt="Your template photo"
                   onError={() => setPreviewBroken(true)}
-                  className="block max-h-[60vh] w-auto max-w-full rounded-md object-contain"
+                  // Shorter on phones so "Next: your photos" stays above the fold.
+                  className="block max-h-[45dvh] w-auto max-w-full rounded-md object-contain md:max-h-[60vh]"
                 />
                 {upload && upload.faceCount > 1 && upload.subjectBox && (
                   <span
@@ -157,7 +158,7 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
                   aria-valuenow={Math.round(template.progress * 100)}
                   className="h-1 overflow-hidden rounded-pill bg-surface-2"
                 >
-                  <div className="h-full bg-accent transition-[width]" style={{ width: `${template.progress * 100}%` }} />
+                  <div className="h-full bg-accent transition-[width] motion-reduce:transition-none" style={{ width: `${template.progress * 100}%` }} />
                 </div>
               </div>
             )}

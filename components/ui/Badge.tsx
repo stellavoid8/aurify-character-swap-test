@@ -4,7 +4,8 @@ import { cn } from '@/lib/cn';
 const TONES = {
   neutral: 'bg-surface-2 text-ink-muted',
   accent: 'bg-accent-soft text-ink',
-  success: 'bg-success-soft text-success',
+  // Green text on the soft green is below 4.5:1, so the text stays in ink.
+  success: 'bg-success-soft text-ink',
   warning: 'bg-warning-soft text-warning',
   danger: 'bg-danger-soft text-danger',
 } as const;

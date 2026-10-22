@@ -1,11 +1,13 @@
 'use client';
 
 import { ArrowRight, ImageOff } from 'lucide-react';
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { Notice } from '@/components/ui/Notice';
 import { ProgressSteps, type ProgressStep } from '@/components/ui/ProgressSteps';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { ELAPSED_ANNOUNCE_MS } from '@/lib/limits';
+import { skipOptimizer } from '@/lib/image-src';
 import type { JobStage, JobView } from '@/lib/types';
 
 const STEPS: { label: string; stage: JobStage }[] = [
@@ -50,8 +52,9 @@ function Thumb({ url, alt }: { url: string | null; alt: string }) {
       </div>
     );
   }
-  // eslint-disable-next-line @next/next/no-img-element -- stored photos of unknown size
-  return <img src={url} alt={alt} className="size-20 rounded-md object-cover md:size-28" />;
+  return (
+    <Image src={url} alt={alt} unoptimized={skipOptimizer(url)} width={112} height={112} sizes="(min-width: 768px) 112px, 80px" className="size-20 rounded-md object-cover md:size-28" />
+  );
 }
 
 export function WaitingScreen({ view, receivedAt }: { view: JobView; receivedAt: number }) {
