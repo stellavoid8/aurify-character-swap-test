@@ -12,6 +12,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // Each PGlite-backed file boots its own Postgres and runs the migrations; under a full parallel run that can pass 10 s.
+    hookTimeout: 30_000,
     coverage: { provider: 'v8', include: ['lib/**'] },
   },
 });

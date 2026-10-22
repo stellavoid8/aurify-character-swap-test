@@ -14,9 +14,19 @@ const startOfUtcDay = sql`(date_trunc('day', now() at time zone 'utc') at time z
  * serializes concurrent check-then-insert so two requests can't both take the last unit.
  */
 export async function checkUnits(sid: string, tx?: Executor): Promise<void> {
-  const exec = tx ?? db;
   if (tx) await tx.execute(sql`select pg_advisory_xact_lock(hashtext('job_rounds_units'))`);
+  const counts = await countToday(sid, tx ?? db);
+  if (counts.session >= SESSION_DAILY_UNITS) throw new AppError('RATE_LIMITED_SESSION');
+  if (counts.global >= (await globalDailyUnits())) throw new AppError('RATE_LIMITED_GLOBAL');
+}
 
+/** Units this session can still start today (UTC), counting the global cap too. */
+export async function unitsLeftToday(sid: string): Promise<number> {
+  const counts = await countToday(sid, db);
+  return Math.max(0, Math.min(SESSION_DAILY_UNITS - counts.session, (await globalDailyUnits()) - counts.global));
+}
+
+async function countToday(sid: string, exec: Executor): Promise<{ session: number; global: number }> {
   const [counts] = await exec
     .select({
       session: sql<number>`count(*) filter (where ${jobRounds.sessionId} = ${sid})`.mapWith(Number),
@@ -24,7 +34,5 @@ export async function checkUnits(sid: string, tx?: Executor): Promise<void> {
     })
     .from(jobRounds)
     .where(gte(jobRounds.startedAt, startOfUtcDay));
-
-  if (counts.session >= SESSION_DAILY_UNITS) throw new AppError('RATE_LIMITED_SESSION');
-  if (counts.global >= (await globalDailyUnits())) throw new AppError('RATE_LIMITED_GLOBAL');
+  return counts;
 }
