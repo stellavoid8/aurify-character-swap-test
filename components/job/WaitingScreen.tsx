@@ -14,10 +14,18 @@ const STEPS: { label: string; stage: JobStage }[] = [
   { label: 'Picking the best match', stage: 'ranking' },
 ];
 
-function progressSteps(stage: JobStage): ProgressStep[] {
-  // TODO(prompt 15): refinement rounds get their own step.
-  const current = stage === 'done' ? STEPS.length : Math.max(0, STEPS.findIndex((s) => s.stage === stage));
-  return STEPS.map(({ label }, i) => ({ label, state: i < current ? 'done' : i === current ? 'active' : 'todo' }));
+/**
+ * Try again rounds reuse the template analysis, so they skip its step and say the versions are new.
+ * The exception is a retry after the analysis itself failed: that round analyzes again.
+ * Fix the face rounds never show this screen; the result screen shows their progress.
+ */
+function progressSteps(stage: JobStage, round: number): ProgressStep[] {
+  const steps =
+    round > 1 && stage !== 'analyzing'
+      ? STEPS.slice(1).map((s) => (s.stage === 'generating' ? { ...s, label: 'Making 3 new versions' } : s))
+      : STEPS;
+  const current = stage === 'done' ? steps.length : Math.max(0, steps.findIndex((s) => s.stage === stage));
+  return steps.map(({ label }, i) => ({ label, state: i < current ? 'done' : i === current ? 'active' : 'todo' }));
 }
 
 /** 42_000 → "0:42" */
@@ -72,7 +80,7 @@ export function WaitingScreen({ view, receivedAt }: { view: JobView; receivedAt:
       <h1 className="font-display text-title">Making your picture</h1>
 
       <div aria-live="polite" className="w-full max-w-xs text-left">
-        <ProgressSteps steps={progressSteps(view.stage)} />
+        <ProgressSteps steps={progressSteps(view.stage, view.round)} />
       </div>
 
       <div className="flex flex-col gap-1">

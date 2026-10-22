@@ -5,15 +5,18 @@ import { db, type Executor } from '../db';
 import { jobRounds, jobs } from '../db/schema';
 import { ERRORS } from '../errors';
 import { markStageEnd } from '../telemetry';
-import type { ErrorCode } from '../types';
+import type { ErrorCode, JobNotice } from '../types';
 import { rankRound } from './rank';
 
 /** Cache tag of `getEtaMs` (server/stats/queries.ts): a finished round is a new ETA sample. */
 const ETA_TAG = 'eta';
 
+/** Appended on a failed refinement; every new round clears it again (see `reopenJob`). */
+const REFINEMENT_FAILED: JobNotice[] = [{ code: 'REFINEMENT_FAILED' }];
+
 /**
- * The single place that writes `jobs.status` / `jobs.stage` after a job is created, apart from
- * the deadline in timeout.ts.
+ * The single place that writes `jobs.status` / `jobs.stage` while a round runs, apart from the
+ * deadline in timeout.ts. Opening a round (createJob, Try again, Fix the face) is server/jobs/create.ts.
  * Every write is guarded by the round: a round that is no longer the job's current one (a late
  * webhook from an earlier attempt, a superseded Try again) can't move the job.
  */
@@ -86,4 +89,29 @@ export async function finishRound(jobId: string, roundId: string, chosenCandidat
     // Only possible outside a Next request scope (scripts); the ETA cache then expires on its own.
     console.warn('[orchestrator] eta revalidation skipped', err instanceof Error ? err.message : err);
   }
+}
+
+/**
+ * Ends a Fix the face round. Either way the job goes back to `succeeded`, because the picture it
+ * was refining is still valid: a failure only adds the REFINEMENT_FAILED notice. The chosen
+ * version never changes here; the user decides between before and after.
+ */
+export async function finishRefinement(jobId: string, roundId: string, outcome: 'succeeded' | 'failed'): Promise<void> {
+  await markStageEnd(roundId, 'refining');
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(jobRounds)
+      .set({ status: outcome, finishedAt: now })
+      .where(and(eq(jobRounds.id, roundId), eq(jobRounds.status, 'running')));
+    await tx
+      .update(jobs)
+      .set({
+        status: 'succeeded',
+        stage: 'done',
+        finishedAt: now,
+        ...(outcome === 'failed' ? { notices: sql`${jobs.notices} || ${JSON.stringify(REFINEMENT_FAILED)}::jsonb` } : {}),
+      })
+      .where(isCurrentRound(jobId, roundId));
+  });
 }

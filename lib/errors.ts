@@ -111,6 +111,8 @@ export const NOTICES = {
   PHOTO_EXCLUDED_MISMATCH: { message: "We didn't use photo {n}: it may be a different person." },
   ALL_PHOTOS_WEAK: { message: 'None of your photos were ideal, so we used the clearest one.' },
   LATE_RESULTS_ADDED: { message: 'A version from your earlier attempt finished late and was added below.' },
+  /** Fix the face failed or ran out of time; the job stays succeeded with its original picture. */
+  REFINEMENT_FAILED: { message: ERRORS.REFINEMENT_FAILED.message },
 } as const satisfies Record<string, { message: string }>;
 
 export function isErrorCode(value: unknown): value is ErrorCode {
