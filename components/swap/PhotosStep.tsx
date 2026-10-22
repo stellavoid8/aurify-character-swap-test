@@ -1,12 +1,13 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Notice } from '@/components/ui/Notice';
-import { AppError, ERRORS } from '@/lib/errors';
+import { AppError, ERRORS, isErrorCode } from '@/lib/errors';
 import { liveCheck } from '@/lib/face/browser';
 import { MAX_USER_PHOTOS } from '@/lib/limits';
-import type { ErrorCode } from '@/lib/types';
+import type { ApiResponse, ErrorCode } from '@/lib/types';
 import { preResize, uploadFile, validateFile } from '@/lib/upload-client';
 import { normalizeUpload } from '@/server/uploads/actions';
 import { useSwapFlow, type SlotState } from '@/stores/swap-flow';
@@ -26,6 +27,23 @@ const REJECT_CODES: ErrorCode[] = [
 
 const isPending = (slot: SlotState) => slot.status === 'uploading' || slot.status === 'checking';
 const isFailed = (slot: SlotState) => slot.status === 'rejected' || slot.status === 'error';
+const isRateLimit = (code: ErrorCode) => code === 'RATE_LIMITED_SESSION' || code === 'RATE_LIMITED_GLOBAL';
+
+/** POST /api/jobs. Resolves to the new job id or an error code; never throws. */
+async function startJob(templateUploadId: string, userUploadIds: string[]): Promise<{ jobId: string } | { code: ErrorCode }> {
+  try {
+    const res = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ templateUploadId, userUploadIds }),
+    });
+    const body = (await res.json()) as ApiResponse<{ jobId: string }>;
+    if ('data' in body) return body.data;
+    return { code: isErrorCode(body.error?.code) ? body.error.code : 'INTERNAL_ERROR' };
+  } catch {
+    return { code: 'INTERNAL_ERROR' };
+  }
+}
 
 /** Runs the in-browser face check; null when the browser can't decode the photo (HEIC outside Safari). */
 async function runLiveCheck(file: File): Promise<'ok' | 'warn' | null> {
@@ -49,8 +67,11 @@ export function PhotosStep({ sid, onBack }: { sid: string; onBack: () => void })
   const addPhotos = useSwapFlow((s) => s.addPhotos);
   const updateSlot = useSwapFlow((s) => s.updateSlot);
   const removeSlot = useSwapFlow((s) => s.removeSlot);
+  const router = useRouter();
 
   const [overflow, setOverflow] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<ErrorCode | null>(null);
   /** The (pre-resized) file behind each slot, kept so "Try again" can re-upload it. */
   const files = useRef(new Map<string, File>());
 
@@ -118,16 +139,23 @@ export function PhotosStep({ sid, onBack }: { sid: string; onBack: () => void })
   };
 
   const ready = photos.filter((p) => p.status === 'ok');
-  const canSubmit = ready.length > 0 && !photos.some(isPending);
+  const rateLimited = startError !== null && isRateLimit(startError);
+  const canSubmit = ready.length > 0 && !photos.some(isPending) && !!template?.uploadId && !rateLimited;
   const allFailed = photos.length > 0 && photos.every(isFailed);
 
-  const submit = () => {
-    // TODO(prompt 11): POST /api/jobs and go to /jobs/[id].
-    console.log('[create] payload', {
-      templateUploadId: template?.uploadId,
-      userUploadIds: ready.map((p) => p.uploadId),
-      referenceUploadId: photos.find((p) => p.localId === referenceLocalId)?.uploadId ?? null,
-    });
+  // The server picks the main photo itself, from the same quality scores plus the likeness check.
+  const submit = async () => {
+    if (!template?.uploadId) return;
+    setStarting(true);
+    setStartError(null);
+    const result = await startJob(template.uploadId, ready.map((p) => p.uploadId!));
+    if ('jobId' in result) {
+      // Stay in the "Starting…" state until the next page takes over.
+      router.push(`/jobs/${result.jobId}`);
+      return;
+    }
+    setStartError(result.code);
+    setStarting(false);
   };
 
   const templateSrc = template?.upload?.url ?? template?.previewUrl;
@@ -197,9 +225,18 @@ export function PhotosStep({ sid, onBack }: { sid: string; onBack: () => void })
       )}
 
       <div className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface p-4 md:static md:border-0 md:bg-transparent md:p-0">
+        {startError && (
+          <Notice
+            tone={rateLimited ? 'warning' : 'danger'}
+            title={ERRORS[startError].message}
+            className="mx-auto mb-3 max-w-5xl md:mb-4"
+          >
+            {ERRORS[startError].nextStep}
+          </Notice>
+        )}
         <div className="mx-auto flex max-w-5xl flex-col items-center gap-2 md:flex-row-reverse md:justify-start md:gap-4">
-          <Button size="lg" disabled={!canSubmit} onClick={submit}>
-            Make my picture
+          <Button size="lg" disabled={!canSubmit} loading={starting} onClick={submit}>
+            {starting ? 'Starting…' : 'Make my picture'}
           </Button>
           <p className="text-caption text-ink-muted">Takes about 1–2 minutes</p>
         </div>
