@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Notice } from '@/components/ui/Notice';
+import { cn } from '@/lib/cn';
 import { AppError, ERRORS, isErrorCode } from '@/lib/errors';
 import { liveCheck } from '@/lib/face/browser';
 import { MAX_USER_PHOTOS } from '@/lib/limits';
@@ -160,8 +161,12 @@ export function PhotosStep({ sid, onBack }: { sid: string; onBack: () => void })
 
   const templateSrc = template?.upload?.url ?? template?.previewUrl;
 
+  // Room under the content for the fixed bar on phones; taller while the bar also shows an error.
   return (
-    <section aria-labelledby="photos-heading" className="flex flex-col gap-6 pb-32 md:pb-0">
+    <section
+      aria-labelledby="photos-heading"
+      className={cn('flex flex-col gap-6 md:pb-0', startError ? 'pb-60' : 'pb-32')}
+    >
       {templateSrc && (
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element -- blob/object URLs of unknown size */}
@@ -224,7 +229,8 @@ export function PhotosStep({ sid, onBack }: { sid: string; onBack: () => void })
         </ul>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface p-4 md:static md:border-0 md:bg-transparent md:p-0">
+      {/* Fixed on phones, sticky on desktop: the main action stays in view however many photos there are. */}
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface p-4 md:sticky md:-mx-4 md:rounded-t-lg md:px-4">
         {startError && (
           <Notice
             tone={rateLimited ? 'warning' : 'danger'}

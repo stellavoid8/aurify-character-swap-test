@@ -51,7 +51,7 @@ export function Dropzone({
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
       className={cn(
-        'flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors md:min-h-72',
+        'flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors motion-reduce:transition-none md:min-h-72',
         'focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent',
         dragging ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:bg-surface-2',
         disabled && 'cursor-not-allowed opacity-50',

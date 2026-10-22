@@ -1,11 +1,17 @@
 'use client';
 
 import { ChevronsLeftRight } from 'lucide-react';
+import Image from 'next/image';
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { cn } from '@/lib/cn';
+import { skipOptimizer } from '@/lib/image-src';
 
 const STEP = 5;
-const IMAGE = 'col-start-1 row-start-1 block w-full max-h-[60vh] rounded-md object-contain';
+const IMAGE = 'col-start-1 row-start-1 block h-auto w-full max-h-[60vh] rounded-md object-contain';
+/** Full width in the phone dialog, the inline card's width on desktop. */
+const SIZES = '(min-width: 768px) 480px, 100vw';
+/** Stand-in pixel size: both results share the real aspect ratio, which `h-auto` applies once loaded. */
+const UNKNOWN_SIZE = 1024;
 const LABEL = 'pointer-events-none absolute top-2 rounded-pill bg-surface/90 px-2 py-0.5 text-caption text-ink';
 
 const clamp = (value: number) => Math.min(100, Math.max(0, value));
@@ -66,12 +72,23 @@ export function CompareSlider({ beforeUrl, afterUrl, beforeAlt, afterAlt, classN
       // Horizontal drags move the divider; vertical ones still scroll the page on phones.
       className={cn('relative grid w-full cursor-ew-resize touch-pan-y select-none rounded-md bg-surface-2', className)}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- stored results of unknown size */}
-      <img src={afterUrl} alt={afterAlt} draggable={false} className={IMAGE} />
-      {/* eslint-disable-next-line @next/next/no-img-element -- stored results of unknown size */}
-      <img
+      <Image
+        src={afterUrl}
+        unoptimized={skipOptimizer(afterUrl)}
+        alt={afterAlt}
+        width={UNKNOWN_SIZE}
+        height={UNKNOWN_SIZE}
+        sizes={SIZES}
+        draggable={false}
+        className={IMAGE}
+      />
+      <Image
         src={beforeUrl}
+        unoptimized={skipOptimizer(beforeUrl)}
         alt={beforeAlt}
+        width={UNKNOWN_SIZE}
+        height={UNKNOWN_SIZE}
+        sizes={SIZES}
         draggable={false}
         className={IMAGE}
         style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}
