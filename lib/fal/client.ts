@@ -21,10 +21,15 @@ export type FalCallContext = Pick<CallRecord, 'jobId' | 'roundId' | 'candidateId
 
 const CONTENT_POLICY = /content[\s_-]?polic|content_policy_violation|nsfw|safety/i;
 
+/** True when a fal error message or body says the request was refused for content reasons. */
+export function isContentPolicyError(text: string): boolean {
+  return CONTENT_POLICY.test(text);
+}
+
 function toAppError(err: unknown): AppError {
   if (err instanceof ApiError) {
     const text = `${err.message} ${JSON.stringify(err.body ?? '')}`;
-    const code = err.status === 422 && CONTENT_POLICY.test(text) ? 'CONTENT_BLOCKED' : 'GENERATION_FAILED';
+    const code = err.status === 422 && isContentPolicyError(text) ? 'CONTENT_BLOCKED' : 'GENERATION_FAILED';
     return new AppError(code, { detail: `fal ${err.status}: ${err.message}`, cause: err });
   }
   return new AppError('GENERATION_FAILED', { detail: err instanceof Error ? err.message : String(err), cause: err });

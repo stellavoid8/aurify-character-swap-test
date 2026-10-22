@@ -27,6 +27,9 @@ export const MAX_AUTO_RETRIES = 1;
 export const MAX_ROUNDS_PER_JOB = 6;
 export const JOB_TIMEOUT_MS = 6 * 60_000;
 export const POLL_INTERVAL_MS = 2500;
+/** After this many failed polls in a row the waiting screen says the connection is lost and slows down. */
+export const POLL_MAX_ERRORS = 3;
+export const POLL_BACKOFF_MS = 10_000;
 
 // Daily caps: one `job_rounds` row is one unit.
 export const SESSION_DAILY_UNITS = 20;
@@ -44,6 +47,11 @@ export async function retentionDays(): Promise<number> {
 // Waiting screen ETA: fall back to the default until enough recent rounds exist.
 export const DEFAULT_ETA_MS = 90_000;
 export const ETA_MIN_SAMPLES = 5;
+/** Rounds older than this don't count toward the ETA. */
+export const ETA_WINDOW_DAYS = 7;
+export const ETA_CACHE_SECONDS = 5 * 60;
+/** The waiting screen's screen-reader elapsed time updates this often (the visible timer ticks every second). */
+export const ELAPSED_ANNOUNCE_MS = 30_000;
 
 // Face checks
 export const FACE_MIN_SCORE = 0.5;
@@ -60,6 +68,8 @@ export const FACE_MIN_SIDE_FRAC = 0.06;
 export const MISMATCH_COSINE = 0.35;
 /** Identity scores closer than this are a tie; action score decides. */
 export const TIE_BREAK_DELTA = 0.03;
+/** In a tie, each action-score point (1–5) is worth this much identity. */
+export const TIE_BREAK_ACTION_WEIGHT = 0.02;
 
 // Providers
 /** Output cap for one vision-LLM call (template analysis or action rating). */

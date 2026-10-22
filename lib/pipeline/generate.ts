@@ -3,7 +3,7 @@ import { randomInt } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { TemplateAnalysis } from '../ai/schemas';
 import { db } from '../db';
-import { candidates, jobRounds, jobs, uploads, type Candidate, type Upload } from '../db/schema';
+import { candidates, jobRounds, jobs, uploads, type Candidate, type Job, type Upload } from '../db/schema';
 import { AppError, isErrorCode } from '../errors';
 import { submitToQueue } from '../fal/client';
 import { buildInput, PRIMARY_GENERATOR, type FalModel } from '../fal/models';
@@ -13,8 +13,9 @@ import type { ErrorCode, JobNotice } from '../types';
 import { webhookUrlFor } from '../webhook-token';
 import { analyzeJob } from './analyze';
 import { detectCases } from './cases';
+import { maybeFinishRound } from './fan-in';
 import { failJob, setStage } from './orchestrator';
-import { selectReference } from './preprocess';
+import { selectReference, type ReferenceSelection } from './preprocess';
 import { buildPrompt } from './prompt';
 
 /**
@@ -65,6 +66,35 @@ async function loadUploads(ids: string[]): Promise<Map<string, Upload>> {
   return new Map(rows.map((row) => [row.id, row]));
 }
 
+/** The job's template and user photos, in the order the user added them. Throws if any is gone. */
+async function loadJobPhotos(job: Job): Promise<{ template: Upload; userPhotos: Upload[] }> {
+  const byId = await loadUploads([job.templateUploadId, ...job.userUploadIds]);
+  const template = byId.get(job.templateUploadId);
+  const userPhotos = job.userUploadIds.map((id) => byId.get(id)).filter((u): u is Upload => !!u);
+  if (!template?.url || userPhotos.length !== job.userUploadIds.length) {
+    throw new AppError('UPLOAD_NOT_FOUND', { detail: `job ${job.id}: an upload is gone` });
+  }
+  return { template, userPhotos };
+}
+
+/** Generator image order: `[template, reference, ...other used photos]`. */
+function generatorImageUrls(template: Upload, userPhotos: Upload[], selection: ReferenceSelection): string[] {
+  const byId = new Map(userPhotos.map((p) => [p.id, p]));
+  return [template.url!, ...selection.usedIds.map((id) => byId.get(id)!.url!)];
+}
+
+/**
+ * The input a generation candidate of this job was first submitted with, rebuilt from the stored
+ * prompt and analysis (selectReference is deterministic), for an automatic retry with a new seed.
+ */
+export async function generationInputFor(jobId: string): Promise<CandidateInput> {
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId));
+  if (!job?.prompt || job.analysis == null) throw new AppError('JOB_NOT_FOUND', { detail: `generationInputFor: ${jobId} not generated` });
+  const { template, userPhotos } = await loadJobPhotos(job);
+  const selection = selectReference(userPhotos, TemplateAnalysis.parse(job.analysis));
+  return { prompt: job.prompt, imageUrls: generatorImageUrls(template, userPhotos, selection) };
+}
+
 export async function runGenerationRound({ jobId, roundId }: { jobId: string; roundId: string }): Promise<void> {
   try {
     await generate(jobId, roundId);
@@ -83,12 +113,7 @@ async function generate(jobId: string, roundId: string): Promise<void> {
     .where(and(eq(jobRounds.id, roundId), eq(jobRounds.jobId, jobId)));
   if (!job || !round) throw new AppError('JOB_NOT_FOUND', { detail: `runGenerationRound: ${jobId}/${roundId} missing` });
 
-  const byId = await loadUploads([job.templateUploadId, ...job.userUploadIds]);
-  const template = byId.get(job.templateUploadId);
-  const userPhotos = job.userUploadIds.map((id) => byId.get(id)).filter((u): u is Upload => !!u);
-  if (!template?.url || userPhotos.length !== job.userUploadIds.length) {
-    throw new AppError('UPLOAD_NOT_FOUND', { detail: 'runGenerationRound: an upload is gone' });
-  }
+  const { template, userPhotos } = await loadJobPhotos(job);
 
   // Try again rounds reuse the stored analysis; only the first round pays for the LLM call.
   const fresh = job.analysis == null;
@@ -107,11 +132,10 @@ async function generate(jobId: string, roundId: string): Promise<void> {
 
   const cases = detectCases(analysis);
   const selection = selectReference(userPhotos, analysis);
-  const used = selection.usedIds.map((id) => byId.get(id)!);
   const prompt = buildPrompt({
     analysis,
     cases,
-    userPhotoCount: used.length,
+    userPhotoCount: selection.usedIds.length,
     peopleCount: analysis.template.people_count,
   });
 
@@ -151,10 +175,9 @@ async function generate(jobId: string, roundId: string): Promise<void> {
     )
     .returning();
 
-  const input: CandidateInput = { prompt, imageUrls: [template.url, ...used.map((u) => u.url!)] };
+  const input: CandidateInput = { prompt, imageUrls: generatorImageUrls(template, userPhotos, selection) };
   const results = await Promise.all(inserted.map((candidate) => submitCandidate(candidate, input)));
-  const failures = results.filter((code): code is ErrorCode => code !== null);
-  if (failures.length === inserted.length) {
-    await failJob(jobId, roundId, failures.includes('CONTENT_BLOCKED') ? 'CONTENT_BLOCKED' : 'GENERATION_FAILED');
-  }
+  // A refused submission is a finished candidate. If every candidate is now finished (all refused, or
+  // the others' webhooks already arrived) the fan-in fails or advances the round; otherwise it no-ops.
+  if (results.some((code) => code !== null)) await maybeFinishRound(roundId);
 }
