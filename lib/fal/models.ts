@@ -46,6 +46,11 @@ export function buildInput(model: FalModel, { prompt, imageUrls, seed }: BuildIn
   }
 }
 
+/** The face-swap input for Fix the face: the chosen result gets the face from the reference photo. */
+export function buildRefineInput({ targetUrl, faceUrl }: { targetUrl: string; faceUrl: string }): Record<string, unknown> {
+  return buildInput(REFINE_MODEL, { prompt: '', imageUrls: [targetUrl, faceUrl] });
+}
+
 /** Generators return `{ images: [{ url }] }`; face-swap returns `{ image: { url } }`. */
 export function parseOutput(payload: unknown): { imageUrls: string[] } {
   if (!payload || typeof payload !== 'object') return { imageUrls: [] };

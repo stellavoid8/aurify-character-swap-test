@@ -16,7 +16,7 @@ import type { Face } from '../types';
  * breaks, the earliest result wins unscored.
  */
 
-/** Why a candidate's identity score is what it is; stored on its `ranking` provider_calls row. */
+/** Why a candidate's identity score is what it is; stored on its `ranking` (or `refining`) provider_calls row. */
 type ScoreReason = 'scored' | 'no_face' | 'no_reference' | 'error';
 
 type Scored = { candidate: Candidate; identity: number | null; action: number | null };
@@ -41,19 +41,40 @@ export async function rankRound(roundId: string): Promise<string | null> {
   }
 }
 
-async function scoreAndRank(roundId: string, succeeded: Candidate[]): Promise<string> {
-  const [round] = await db.select().from(jobRounds).where(eq(jobRounds.id, roundId));
-  const [job] = await db.select().from(jobs).where(eq(jobs.id, round.jobId));
+/** What a job's results are scored against: the reference photo's embedding and where the template's subject is. */
+type IdentityTarget = { template: Upload; reference: number[] | null; target: [number, number] | null };
+
+async function identityTargetFor(jobId: string): Promise<IdentityTarget> {
+  const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId));
   const uploadIds = [job.templateUploadId, ...(job.referenceUploadId ? [job.referenceUploadId] : [])];
   const byId = new Map((await db.select().from(uploads).where(inArray(uploads.id, uploadIds))).map((u) => [u.id, u]));
   const template = byId.get(job.templateUploadId)!;
   const reference = job.referenceUploadId ? (byId.get(job.referenceUploadId)?.embedding ?? null) : null;
-  const target = subjectCentre(template);
+  return { template, reference, target: subjectCentre(template) };
+}
+
+/**
+ * One finished candidate's likeness, measured exactly as rankRound measures it. Used by Fix the
+ * face, so its before and after numbers are comparable. Null when it can't be measured.
+ */
+export async function scoreIdentity(candidate: Candidate, stage: string): Promise<number | null> {
+  try {
+    const { reference, target } = await identityTargetFor(candidate.jobId);
+    return await identityScore(candidate, reference, target, stage);
+  } catch (err) {
+    console.error('[rank] identity target unavailable', { candidateId: candidate.id, err: err instanceof Error ? err.message : err });
+    return null;
+  }
+}
+
+async function scoreAndRank(roundId: string, succeeded: Candidate[]): Promise<string> {
+  const [round] = await db.select().from(jobRounds).where(eq(jobRounds.id, roundId));
+  const { template, reference, target } = await identityTargetFor(round.jobId);
 
   const scored: Scored[] = [];
   // One at a time: the face models are CPU-bound, so parallel passes would only contend.
   for (const candidate of succeeded) {
-    scored.push({ candidate, identity: await identityScore(candidate, reference, target), action: null });
+    scored.push({ candidate, identity: await identityScore(candidate, reference, target, 'ranking'), action: null });
   }
   scored.sort(byIdentity);
 
@@ -95,8 +116,13 @@ function pickFace(faces: Face[], width: number, height: number, target: [number,
 }
 
 /** Cosine similarity to the reference, or null (with the reason recorded) when it can't be measured. */
-async function identityScore(candidate: Candidate, reference: number[] | null, target: [number, number] | null): Promise<number | null> {
-  const ctx = { jobId: candidate.jobId, roundId: candidate.roundId, candidateId: candidate.id, stage: 'ranking' };
+async function identityScore(
+  candidate: Candidate,
+  reference: number[] | null,
+  target: [number, number] | null,
+  stage: string,
+): Promise<number | null> {
+  const ctx = { jobId: candidate.jobId, roundId: candidate.roundId, candidateId: candidate.id, stage };
   const started = performance.now();
   let score: number | null = null;
   let reason: ScoreReason;
