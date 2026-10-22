@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Occlusion as OcclusionSchema } from '@/lib/ai/schemas';
 import type { z } from 'zod';
 import type { Upload } from '@/lib/db/schema';
 import { selectReference } from '@/lib/pipeline/preprocess';
 import { makeAnalysis } from './helpers/analysis';
+
+// preprocess.ts also holds the upload step, which loads lib/env.ts on import.
+vi.hoisted(() => vi.stubEnv('DATABASE_URL', 'postgres://localhost:5432/test'));
 
 type Occ = z.infer<typeof OcclusionSchema>[];
 

@@ -1,9 +1,69 @@
+import 'server-only';
 import type { TemplateAnalysis } from '../ai/schemas';
-import type { Upload } from '../db/schema';
+import { db } from '../db';
+import { uploads, type NewUpload, type Upload } from '../db/schema';
 import { AppError } from '../errors';
 import { cosine } from '../face/arcface';
+import { checkUserFaces, faceEngine, pickSubjectFace, qualityScore, toFaceBox } from '../face';
+import { normalizeImage } from '../images';
 import { MISMATCH_COSINE } from '../limits';
+import { deleteObjects, fetchObject, putObject } from '../storage';
 import type { JobNotice } from '../types';
+
+export type PreprocessInput = {
+  sid: string;
+  kind: 'template' | 'user';
+  /** Already checked by `assertOwnedRawUrl`. */
+  rawUrl: string;
+};
+
+/**
+ * Upload-time step: raw photo → normalized JPEG + face data → one `uploads` row.
+ * A user photo without exactly one usable face is stored as `rejected` with its `reject_code` (kept
+ * for stats, no image kept). A template is always `ok`; zero or several faces only produce notices.
+ * Unreadable files throw IMAGE_DECODE_FAILED / UNSUPPORTED_FILE_TYPE and leave no row.
+ * The raw object is deleted in every case: retrying means uploading the file again.
+ */
+export async function preprocessUpload({ sid, kind, rawUrl }: PreprocessInput): Promise<Upload> {
+  try {
+    const { jpeg, width, height } = await normalizeImage(await fetchObject(rawUrl));
+    const { faces } = await faceEngine.analyzeImage(jpeg, { stage: `upload-${kind}` });
+
+    const row: NewUpload = {
+      sessionId: sid,
+      kind,
+      status: 'ok',
+      rawUrl,
+      width,
+      height,
+      bytes: jpeg.length,
+      faces: faces.map((face) => toFaceBox(face, width, height)),
+    };
+
+    if (kind === 'user') {
+      const check = checkUserFaces(faces, width, height);
+      if (!check.ok) {
+        row.status = 'rejected';
+        row.rejectCode = check.code;
+      } else {
+        row.embedding = await faceEngine.embedFace(jpeg, check.face, { stage: 'upload-user' });
+        row.qualityScore = qualityScore(check.face, width, height);
+      }
+    } else {
+      row.subjectFaceIndex = pickSubjectFace(faces, width, height);
+      if (row.subjectFaceIndex !== null) row.qualityScore = qualityScore(faces[row.subjectFaceIndex], width, height);
+    }
+
+    if (row.status === 'ok') {
+      ({ url: row.url } = await putObject(`sessions/${sid}/norm/${crypto.randomUUID()}.jpg`, jpeg, 'image/jpeg'));
+    }
+    const [upload] = await db.insert(uploads).values(row).returning();
+    return upload;
+  } finally {
+    // Logged, not thrown: a leftover raw file must not fail an otherwise good upload.
+    await deleteObjects([rawUrl]).catch((err) => console.error('[preprocess] raw delete failed', { kind, err }));
+  }
+}
 
 /**
  * Job-time choice of which user photos to send (Assumption 6). Photos that hide the face are

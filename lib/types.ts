@@ -43,3 +43,19 @@ export type Face = {
 
 /** Decoded pixels: tightly packed RGB, 3 bytes per pixel, row-major. */
 export type RgbImage = { data: Uint8Array; width: number; height: number };
+
+/** What the browser learns about a normalized upload. Boxes are normalized 0–1. */
+export type UploadView = {
+  id: string;
+  kind: 'template' | 'user';
+  status: 'pending' | 'ok' | 'rejected';
+  rejectCode: string | null;
+  url: string | null;
+  width: number;
+  height: number;
+  /** Confident faces only (score ≥ FACE_MIN_SCORE). */
+  faceCount: number;
+  /** Template only: the face that will be swapped. */
+  subjectBox: FaceBox['box'] | null;
+  qualityScore: number | null;
+};
