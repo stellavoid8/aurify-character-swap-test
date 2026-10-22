@@ -1,7 +1,9 @@
 /**
  * Dev seed: one finished demo job with three succeeded candidates, so the result screen and
  * scripts/report.ts have data before any real generation runs. Fixed ids + upserts make it idempotent.
- * Run with `npm run db:seed`.
+ * Run with `npm run db:seed`. `npm run db:seed -- --eta-samples` also adds ETA_SAMPLE_SECONDS.length
+ * finished real-scored rounds from earlier days, so the waiting screen's ETA switches from the
+ * default to their p50 (200 s → "Usually about 3 min").
  */
 import './load-env';
 import { mkdir } from 'node:fs/promises';
@@ -9,6 +11,10 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { db } from '../lib/db';
 import { candidates, jobRounds, jobs, providerCalls, uploads, type NewUpload } from '../lib/db/schema';
+
+const WITH_ETA_SAMPLES = process.argv.includes('--eta-samples');
+/** Durations of the ETA sample rounds; p50 = 200 s. One per day back, so none counts toward today's units. */
+const ETA_SAMPLE_SECONDS = [150, 185, 200, 215, 260];
 
 const SESSION_ID = '00000000-0000-0000-0000-000000000001';
 const ids = {
@@ -22,6 +28,9 @@ const ids = {
     '00000000-0000-4000-8000-000000000403',
   ],
   calls: Array.from({ length: 7 }, (_, i) => `00000000-0000-4000-8000-0000000005${String(i + 1).padStart(2, '0')}`),
+  etaJobs: ETA_SAMPLE_SECONDS.map((_, i) => `00000000-0000-4000-8000-0000000006${String(i + 1).padStart(2, '0')}`),
+  etaRounds: ETA_SAMPLE_SECONDS.map((_, i) => `00000000-0000-4000-8000-0000000007${String(i + 1).padStart(2, '0')}`),
+  etaCandidates: ETA_SAMPLE_SECONDS.map((_, i) => `00000000-0000-4000-8000-0000000008${String(i + 1).padStart(2, '0')}`),
 };
 
 const SIZE = 512;
@@ -220,6 +229,36 @@ async function main() {
     })),
   ];
 
+  // Finished rounds scored by the real face engine: the ETA query counts these and skips mock-scored ones.
+  const etaSamples = WITH_ETA_SAMPLES
+    ? ETA_SAMPLE_SECONDS.map((seconds, i) => {
+        const startedAt = at((i + 1) * 86_400);
+        const finishedAt = new Date(startedAt.getTime() + seconds * 1000);
+        return {
+          job: {
+            ...jobRow,
+            id: ids.etaJobs[i],
+            chosenCandidateId: ids.etaCandidates[i],
+            deadlineAt: new Date(startedAt.getTime() + 360_000),
+            createdAt: startedAt,
+            finishedAt,
+          },
+          round: { ...roundRow, id: ids.etaRounds[i], jobId: ids.etaJobs[i], stageTimings: {}, startedAt, finishedAt },
+          candidate: {
+            ...candidateRows[0],
+            id: ids.etaCandidates[i],
+            jobId: ids.etaJobs[i],
+            roundId: ids.etaRounds[i],
+            falRequestId: `seed-eta-request-${i + 1}`,
+            scorer: 'onnx' as const,
+            latencyMs: seconds * 1000,
+            submittedAt: startedAt,
+            completedAt: finishedAt,
+          },
+        };
+      })
+    : [];
+
   await db.transaction(async (tx) => {
     for (const row of uploadRows) {
       await tx.insert(uploads).values(row).onConflictDoUpdate({ target: uploads.id, set: upsertSet(row) });
@@ -232,10 +271,16 @@ async function main() {
     for (const row of callRows) {
       await tx.insert(providerCalls).values(row).onConflictDoUpdate({ target: providerCalls.id, set: upsertSet(row) });
     }
+    for (const sample of etaSamples) {
+      await tx.insert(jobs).values(sample.job).onConflictDoUpdate({ target: jobs.id, set: upsertSet(sample.job) });
+      await tx.insert(jobRounds).values(sample.round).onConflictDoUpdate({ target: jobRounds.id, set: upsertSet(sample.round) });
+      await tx.insert(candidates).values(sample.candidate).onConflictDoUpdate({ target: candidates.id, set: upsertSet(sample.candidate) });
+    }
   });
 
   console.log(
-    `Seeded session ${SESSION_ID}: job ${ids.job} (1 round, ${candidateRows.length} candidates, ${callRows.length} provider calls).`,
+    `Seeded session ${SESSION_ID}: job ${ids.job} (1 round, ${candidateRows.length} candidates, ${callRows.length} provider calls)` +
+      (etaSamples.length > 0 ? ` + ${etaSamples.length} ETA sample rounds.` : '.'),
   );
 }
 
