@@ -59,3 +59,47 @@ export type UploadView = {
   subjectBox: FaceBox['box'] | null;
   qualityScore: number | null;
 };
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timed_out';
+export type JobStage = 'analyzing' | 'generating' | 'ranking' | 'refining' | 'done';
+
+export type CandidateView = {
+  id: string;
+  round: number;
+  kind: 'generation' | 'refinement';
+  status: 'pending' | 'succeeded' | 'failed';
+  imageUrl: string | null;
+  identityScore: number | null;
+  actionScore: number | null;
+  rank: number | null;
+  parentCandidateId: string | null;
+};
+
+/** Everything the job page shows: rendered by the page and returned by `GET /api/jobs/[id]`. Plain JSON. */
+export type JobView = {
+  id: string;
+  status: JobStatus;
+  stage: JobStage;
+  round: number;
+  /** Since the current round started; frozen once it finished. */
+  elapsedMs: number;
+  etaMs: number;
+  deadlineAt: string | null;
+  error: { code: ErrorCode; message: string; nextStep: string } | null;
+  template: {
+    url: string | null;
+    width: number;
+    height: number;
+    subjectBox: FaceBox['box'] | null;
+    peopleCount: number | null;
+    subjectLabel: string | null;
+  };
+  userPhotos: { id: string; url: string | null; isReference: boolean }[];
+  notices: { code: NoticeCode; message: string }[];
+  /** Ordered by round, then rank (unranked last). */
+  candidates: CandidateView[];
+  chosenCandidateId: string | null;
+  canRetry: boolean;
+  canRefine: boolean;
+  unitsLeftToday: number;
+};
