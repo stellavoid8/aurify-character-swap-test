@@ -1,11 +1,9 @@
 'use client';
 
-import { ArrowLeft } from 'lucide-react';
 import { useEffect } from 'react';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { useSwapFlow } from '@/stores/swap-flow';
+import { PhotosStep } from './PhotosStep';
 import { TemplateStep } from './TemplateStep';
 
 const STEP_PARAM = 'step';
@@ -49,15 +47,7 @@ export function CreateFlow({ sid }: { sid: string }) {
       {step === 1 ? (
         <TemplateStep sid={sid} onNext={goToPhotos} />
       ) : (
-        // TODO(prompt 10): PhotosStep.
-        <Card className="flex flex-col items-start gap-4">
-          <h1 className="font-display text-title">Add photos of yourself</h1>
-          <p className="text-body text-ink-muted">This step is on its way.</p>
-          <Button variant="secondary" onClick={() => window.history.back()}>
-            <ArrowLeft aria-hidden className="size-4" />
-            Back to template
-          </Button>
-        </Card>
+        <PhotosStep sid={sid} onBack={() => window.history.back()} />
       )}
     </div>
   );
