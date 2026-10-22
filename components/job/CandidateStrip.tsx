@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, type KeyboardEvent } from 'react';
+import { Fragment, useRef, type KeyboardEvent } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/cn';
 import type { CandidateView } from '@/lib/types';
@@ -24,7 +24,11 @@ export function stripOrder(candidates: CandidateView[]): CandidateView[] {
 const NEXT_KEYS = ['ArrowRight', 'ArrowDown'];
 const PREV_KEYS = ['ArrowLeft', 'ArrowUp'];
 
-/** "Other versions": a radio group of thumbnails. Arrow keys move and choose, like any radio group. */
+/**
+ * "Other versions": a radio group of thumbnails. Arrow keys move and choose, like any radio group.
+ * Versions from before the latest Try again sit after an "Earlier versions" divider; Fix the face
+ * results made since then count as current.
+ */
 export function CandidateStrip({ candidates, chosenId, onChoose }: CandidateStripProps) {
   const items = stripOrder(candidates);
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -34,6 +38,9 @@ export function CandidateStrip({ candidates, chosenId, onChoose }: CandidateStri
   const latest = candidates.filter((c) => c.round === latestRound && c.status !== 'pending');
   const finished = latest.filter((c) => c.status === 'succeeded').length;
   const focusIndex = Math.max(0, items.findIndex((c) => c.id === chosenId));
+  const latestGeneration = Math.max(0, ...items.filter((c) => c.kind === 'generation').map((c) => c.round));
+  const isEarlier = (c: CandidateView) => c.round < latestGeneration;
+  const firstEarlier = items.findIndex(isEarlier);
 
   function onKeyDown(event: KeyboardEvent, index: number) {
     let next: number;
@@ -62,30 +69,37 @@ export function CandidateStrip({ candidates, chosenId, onChoose }: CandidateStri
       <div role="radiogroup" aria-label="Versions" className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 py-1">
         {items.map((c, index) => {
           const selected = c.id === chosenId;
-          const best = c.round === latestRound && c.rank === 1;
+          const best = c.kind === 'generation' && c.round === latestGeneration && c.rank === 1;
           return (
-            <button
-              key={c.id}
-              ref={(el) => {
-                refs.current[index] = el;
-              }}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              tabIndex={index === focusIndex ? 0 : -1}
-              onClick={() => onChoose(c.id)}
-              onKeyDown={(event) => onKeyDown(event, index)}
-              className="flex shrink-0 snap-start flex-col items-center gap-1.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element -- stored results of unknown size */}
-              <img
-                src={c.imageUrl!}
-                alt={`Your result, version ${index + 1}`}
-                className={cn('size-20 rounded-md bg-surface-2 object-cover md:size-24', selected && 'ring-2 ring-accent')}
-              />
-              {best && <Badge tone="accent">Best match</Badge>}
-              {c.kind === 'refinement' && <Badge tone="success">Fixed face</Badge>}
-            </button>
+            <Fragment key={c.id}>
+              {index === firstEarlier && index > 0 && (
+                // Visual only: each earlier thumbnail says so in its own name.
+                <div aria-hidden className="flex shrink-0 items-center self-stretch border-l border-line pl-3 text-caption text-ink-muted">
+                  Earlier versions
+                </div>
+              )}
+              <button
+                ref={(el) => {
+                  refs.current[index] = el;
+                }}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                tabIndex={index === focusIndex ? 0 : -1}
+                onClick={() => onChoose(c.id)}
+                onKeyDown={(event) => onKeyDown(event, index)}
+                className="flex shrink-0 snap-start flex-col items-center gap-1.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- stored results of unknown size */}
+                <img
+                  src={c.imageUrl!}
+                  alt={`Your result, version ${index + 1}${isEarlier(c) ? ', earlier' : ''}`}
+                  className={cn('size-20 rounded-md bg-surface-2 object-cover md:size-24', selected && 'ring-2 ring-accent')}
+                />
+                {best && <Badge tone="accent">Best match</Badge>}
+                {c.kind === 'refinement' && <Badge tone="success">Fixed face</Badge>}
+              </button>
+            </Fragment>
           );
         })}
       </div>

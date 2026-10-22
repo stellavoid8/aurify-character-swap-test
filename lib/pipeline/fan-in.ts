@@ -14,11 +14,13 @@ import { markStageEnd, markStageStart, recordCall } from '../telemetry';
 import type { ErrorCode, JobNotice } from '../types';
 import { generationInputFor, submitCandidate } from './generate';
 import { failJob, onRoundGenerated } from './orchestrator';
+import { settleRefinement, submitRefinement } from './refine';
 
 /**
  * Receives fal's completion callbacks (after the route has verified the token and deduplicated the
  * event): copies results into our storage, retries a provider error once with a new seed, and fans
- * the round's candidates in so that exactly one callback moves the job on.
+ * the round's candidates in so that exactly one callback moves the job on. A refinement candidate
+ * is its round's only one, so its events go to `settleRefinement` instead of ranking.
  *
  * Every candidate write is conditional on `(id, attempt, status = 'pending')`, so a stale or
  * repeated callback can never overwrite a finished candidate or a newer attempt.
@@ -38,10 +40,13 @@ const SEED_MAX = 2 ** 31 - 1;
 
 const LATE_NOTICE: JobNotice = { code: 'LATE_RESULTS_ADDED' };
 
+/** The provider_calls stage of a candidate's fal request. */
+const stageOf = (candidate: Candidate) => (candidate.kind === 'refinement' ? 'refining' : 'generating');
+
 export async function handleFalWebhook({ cid, attempt, body }: { cid: string; attempt: number; body: FalWebhookBody }): Promise<void> {
-  let roundId: string | null;
+  let candidate: Candidate | null;
   try {
-    roundId = await applyEvent(cid, attempt, body);
+    candidate = await applyEvent(cid, attempt, body);
     await db
       .update(webhookEvents)
       .set({ processedAt: new Date() })
@@ -51,12 +56,17 @@ export async function handleFalWebhook({ cid, attempt, body }: { cid: string; at
     console.error('[fan-in] webhook handling failed', { cid, attempt, err });
     return;
   }
-  if (!roundId) return;
+  if (!candidate) return;
+  const { roundId } = candidate;
+  if (candidate.kind === 'refinement') {
+    await settleRefinement(candidate.id).catch((err) => console.error('[fan-in] refinement fan-in failed', { roundId, err }));
+    return;
+  }
   await maybeFinishRound(roundId).catch((err) => console.error('[fan-in] round fan-in failed', { roundId, err }));
 }
 
-/** Applies one callback to its candidate. Returns the round to check, or null when the event was stale. */
-async function applyEvent(cid: string, attempt: number, body: FalWebhookBody): Promise<string | null> {
+/** Applies one callback to its candidate. Returns the candidate (as read before the event), or null when the event was stale. */
+async function applyEvent(cid: string, attempt: number, body: FalWebhookBody): Promise<Candidate | null> {
   const [candidate] = await db.select().from(candidates).where(eq(candidates.id, cid));
   // A null request id means the webhook beat submitCandidate's write; the token already pins the attempt.
   const stale =
@@ -73,14 +83,14 @@ async function applyEvent(cid: string, attempt: number, body: FalWebhookBody): P
     const stored = await storeResult(candidate, body.payload);
     if (stored.ok) {
       await completeCandidate(candidate, body.request_id, stored.url);
-      return candidate.roundId;
+      return candidate;
     }
     await failAttempt(candidate, body.request_id, stored.reason);
-    return candidate.roundId;
+    return candidate;
   }
 
   await failAttempt(candidate, body.request_id, body.error ?? 'provider error', body.payload);
-  return candidate.roundId;
+  return candidate;
 }
 
 /** Copies fal's first output image into our storage as a JPEG. Never throws. */
@@ -116,7 +126,7 @@ export async function completeCandidate(candidate: Candidate, requestId: string,
     candidateId: candidate.id,
     provider: 'fal',
     model,
-    stage: 'generating',
+    stage: stageOf(candidate),
     requestId,
     status: 'ok',
     latencyMs,
@@ -139,7 +149,8 @@ export async function completeCandidate(candidate: Candidate, requestId: string,
 
 /**
  * A failed attempt: content refusals are final; anything else is resubmitted with a new seed while
- * `attempt <= MAX_AUTO_RETRIES`, then the candidate fails with GENERATION_FAILED.
+ * `attempt <= MAX_AUTO_RETRIES`, then the candidate fails with GENERATION_FAILED (REFINEMENT_FAILED
+ * for a refinement).
  */
 async function failAttempt(candidate: Candidate, requestId: string, reason: string, payload?: unknown): Promise<void> {
   const text = `${reason} ${JSON.stringify(payload ?? '')}`;
@@ -150,7 +161,7 @@ async function failAttempt(candidate: Candidate, requestId: string, reason: stri
     candidateId: candidate.id,
     provider: 'fal',
     model: candidate.model,
-    stage: 'generating',
+    stage: stageOf(candidate),
     requestId,
     status: 'error',
     latencyMs: Date.now() - candidate.submittedAt.getTime(),
@@ -159,8 +170,8 @@ async function failAttempt(candidate: Candidate, requestId: string, reason: stri
   });
 
   if (blocked) return failCandidate(candidate, 'CONTENT_BLOCKED');
-  // TODO(prompt 15): refinement candidates need their own input; until then they fail without a retry.
-  if (candidate.kind !== 'generation' || candidate.attempt > MAX_AUTO_RETRIES) return failCandidate(candidate, 'GENERATION_FAILED');
+  const refinement = candidate.kind === 'refinement';
+  if (candidate.attempt > MAX_AUTO_RETRIES) return failCandidate(candidate, refinement ? 'REFINEMENT_FAILED' : 'GENERATION_FAILED');
 
   const [next] = await db
     .update(candidates)
@@ -168,6 +179,8 @@ async function failAttempt(candidate: Candidate, requestId: string, reason: stri
     .where(pendingAttempt(candidate))
     .returning();
   if (!next) return;
+  // Face swap takes no seed: its retry resubmits the same two photos.
+  if (refinement) return submitRefinement(next);
 
   try {
     await submitCandidate(next, await generationInputFor(next.jobId));

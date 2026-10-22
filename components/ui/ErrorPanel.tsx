@@ -11,10 +11,19 @@ type ErrorPanelProps = {
   retryLabel?: string;
   /** Shows the retry button disabled (an action that isn't available yet). */
   retryDisabled?: boolean;
+  /** Shows a spinner on the retry button while its action runs. */
+  retryLoading?: boolean;
   className?: string;
 };
 
-export function ErrorPanel({ code, onRetry, retryLabel = 'Try again', retryDisabled = false, className }: ErrorPanelProps) {
+export function ErrorPanel({
+  code,
+  onRetry,
+  retryLabel = 'Try again',
+  retryDisabled = false,
+  retryLoading = false,
+  className,
+}: ErrorPanelProps) {
   const { message, nextStep } = ERRORS[isErrorCode(code) ? code : 'INTERNAL_ERROR'];
   return (
     <div role="alert" className={cn('flex flex-col items-center gap-4 px-4 py-10 text-center', className)}>
@@ -26,7 +35,7 @@ export function ErrorPanel({ code, onRetry, retryLabel = 'Try again', retryDisab
         <p className="text-body text-ink-muted">{nextStep}</p>
       </div>
       {(onRetry || retryDisabled) && (
-        <Button size="lg" onClick={onRetry} disabled={retryDisabled}>
+        <Button size="lg" onClick={onRetry} disabled={retryDisabled} loading={retryLoading}>
           {retryLabel}
         </Button>
       )}

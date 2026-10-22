@@ -2,18 +2,24 @@
 
 import { and, eq, ne } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { jobs } from '@/lib/db/schema';
 import { AppError, toActionError } from '@/lib/errors';
+import { runGenerationRound } from '@/lib/pipeline/generate';
+import { runRefinementRound } from '@/lib/pipeline/refine';
 import { requireSession } from '@/lib/session';
 import type { ActionResult } from '@/lib/types';
+import { startRefinement, startRetry } from './create';
 import { getCandidateForSession, getJobForSession } from './queries';
 
 const chooseSchema = z.object({
   jobId: z.uuid(),
   candidateId: z.uuid(),
 });
+const retrySchema = z.object({ jobId: z.uuid() });
+const refineSchema = chooseSchema;
 
 /** Makes a finished version the one the result screen, Download and Share use. */
 export async function chooseCandidate(
@@ -37,6 +43,36 @@ export async function chooseCandidate(
 
     revalidatePath(`/jobs/${job.id}`);
     return { ok: true, data: { chosenCandidateId: candidate.id } };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+/** Try again: 3 new versions in a new round; the earlier ones stay. Takes one daily unit. */
+export async function retryJob(input: z.input<typeof retrySchema>): Promise<ActionResult<{ round: number }>> {
+  try {
+    const { sid } = await requireSession();
+    const { jobId } = retrySchema.parse(input);
+    const { roundId, round } = await startRetry(sid, jobId);
+    after(() => runGenerationRound({ jobId, roundId }));
+    revalidatePath(`/jobs/${jobId}`);
+    return { ok: true, data: { round } };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+/** Fix the face: a face-only refinement of one finished version. Takes one daily unit. */
+export async function refineCandidate(
+  input: z.input<typeof refineSchema>,
+): Promise<ActionResult<{ round: number; candidateId: string }>> {
+  try {
+    const { sid } = await requireSession();
+    const { jobId, candidateId: parentId } = refineSchema.parse(input);
+    const { roundId, round, candidateId } = await startRefinement(sid, { jobId, candidateId: parentId });
+    after(() => runRefinementRound({ jobId, roundId, candidateId }));
+    revalidatePath(`/jobs/${jobId}`);
+    return { ok: true, data: { round, candidateId } };
   } catch (err) {
     return toActionError(err);
   }
