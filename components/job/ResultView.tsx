@@ -1,6 +1,7 @@
 'use client';
 
 import { Download, ImageOff, RefreshCw, ScanFace } from 'lucide-react';
+import Image from 'next/image';
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Button, buttonStyles } from '@/components/ui/Button';
@@ -12,6 +13,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { cn } from '@/lib/cn';
 import { ERRORS } from '@/lib/errors';
+import { skipOptimizer } from '@/lib/image-src';
 import { MAX_ROUNDS_PER_JOB } from '@/lib/limits';
 import type { CandidateView, FaceBox, JobView } from '@/lib/types';
 import { chooseCandidate, refineCandidate } from '@/server/jobs/actions';
@@ -22,7 +24,9 @@ import { ShareButton } from './ShareButton';
 import { StartOverLink } from './StartOverLink';
 import { SubjectNotice } from './SubjectNotice';
 
-const IMAGE = 'block w-full max-h-[70vh] rounded-md bg-surface-2 object-contain md:max-h-[60vh]';
+const IMAGE = 'block h-auto w-full max-h-[70vh] rounded-md bg-surface-2 object-contain md:max-h-[60vh]';
+/** Stand-in pixel size for stored photos: `next/image` needs one, and `h-auto` lets the real aspect ratio win once loaded. */
+const UNKNOWN_SIZE = 1024;
 const BOX_STROKES = [
   { color: 'stroke-accent-ink', strokeWidth: 5 },
   { color: 'stroke-accent', strokeWidth: 2 },
@@ -37,16 +41,27 @@ type CompareCellProps = {
   box?: { box: FaceBox['box']; width: number; height: number } | null;
   /** Covers the picture, e.g. while Fix the face runs. */
   overlay?: ReactNode;
+  /** The cell's rendered width, for `next/image`. */
+  sizes: string;
+  priority?: boolean;
 };
 
-function CompareCell({ caption, url, alt, className, box, overlay }: CompareCellProps) {
+function CompareCell({ caption, url, alt, className, box, overlay, sizes, priority }: CompareCellProps) {
   return (
     <Card as="figure" className={cn('flex min-w-0 flex-col gap-2', className)}>
       <figcaption className="text-caption text-ink-muted">{caption}</figcaption>
       {url ? (
         <div className="relative">
-          {/* eslint-disable-next-line @next/next/no-img-element -- stored photos of unknown size */}
-          <img src={url} alt={alt} width={box?.width} height={box?.height} className={IMAGE} />
+          <Image
+            src={url}
+            alt={alt}
+            width={box?.width ?? UNKNOWN_SIZE}
+            height={box?.height ?? UNKNOWN_SIZE}
+            sizes={sizes}
+            priority={priority}
+            unoptimized={skipOptimizer(url)}
+            className={IMAGE}
+          />
           {box && (
             // Same aspect fit as object-contain, so the box lands on the face at any cell size.
             <svg
@@ -294,6 +309,8 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
           url={chosen.imageUrl}
           alt={`Your result, version ${chosenIndex + 1}`}
           className="col-span-2 md:order-last md:col-span-1 md:ring-2 md:ring-accent"
+          sizes="(min-width: 768px) 480px, 100vw"
+          priority
           overlay={
             refining && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/80">
@@ -313,13 +330,14 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
               caption="Template"
               url={template.url}
               alt="Template photo"
+              sizes="(min-width: 768px) 320px, 50vw"
               box={
                 multiPerson && template.subjectBox && template.width > 0 && template.height > 0
                   ? { box: template.subjectBox, width: template.width, height: template.height }
                   : null
               }
             />
-            <CompareCell caption="Your photo" url={userPhoto?.url ?? null} alt="Your photo" />
+            <CompareCell caption="Your photo" url={userPhoto?.url ?? null} alt="Your photo" sizes="(min-width: 768px) 320px, 50vw" />
           </>
         )}
       </div>

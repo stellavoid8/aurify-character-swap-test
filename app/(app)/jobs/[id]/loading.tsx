@@ -7,8 +7,8 @@ export default function JobLoading() {
         <StepIndicator current={3} />
         <div className="flex items-center gap-3" aria-busy="true">
           <span className="sr-only">Loading your picture</span>
-          <div className="size-20 animate-pulse rounded-md bg-surface-2 md:size-28" />
-          <div className="size-20 animate-pulse rounded-md bg-surface-2 md:size-28" />
+          <div className="size-20 animate-pulse rounded-md motion-reduce:animate-none bg-surface-2 md:size-28" />
+          <div className="size-20 animate-pulse rounded-md motion-reduce:animate-none bg-surface-2 md:size-28" />
         </div>
       </div>
     </main>

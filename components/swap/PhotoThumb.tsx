@@ -1,12 +1,14 @@
 'use client';
 
 import { CheckCircle2, ImageOff, X, XCircle } from 'lucide-react';
+import Image from 'next/image';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
 import { ERRORS } from '@/lib/errors';
+import { skipOptimizer } from '@/lib/image-src';
 import type { SlotState } from '@/stores/swap-flow';
 
 type PhotoThumbProps = {
@@ -48,12 +50,14 @@ export function PhotoThumb({ slot, index, isReference, onRemove, onRetry }: Phot
     <div className="flex flex-col gap-2">
       <div className={cn('relative aspect-square rounded-md bg-surface-2 ring-2', ringClass(slot))}>
         {showImage ? (
-          // eslint-disable-next-line @next/next/no-img-element -- blob/object URLs of unknown size
-          <img
+          <Image
             src={src}
             alt={label}
+            fill
+            sizes="(min-width: 768px) 240px, 50vw"
+            unoptimized={skipOptimizer(src)}
             onError={() => setPreviewBroken(true)}
-            className="size-full rounded-md object-cover"
+            className="rounded-md object-cover"
           />
         ) : (
           <div role="img" aria-label={label} className="flex size-full items-center justify-center text-ink-muted">
