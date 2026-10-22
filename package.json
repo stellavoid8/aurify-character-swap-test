@@ -19,7 +19,8 @@
     "postinstall": "tsx scripts/fetch-models.ts || echo 'models skipped'",
     "face:smoke": "tsx scripts/face-smoke.ts",
     "fixtures": "tsx scripts/make-fixtures.ts",
-    "bakeoff": "tsx scripts/bakeoff.ts"
+    "bakeoff": "tsx scripts/bakeoff.ts",
+    "report": "tsx scripts/report.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.0.0",
