@@ -1,0 +1,81 @@
+[
+  {
+    "id": "frontal-man-same",
+    "case": "case1",
+    "note": "Control: same gender and age group (man); frontal studio shot, plain background, open smile",
+    "template": "images/frontal-man-studio.jpg",
+    "user": [
+      "images/user-a-1.jpg",
+      "images/user-a-2.jpg",
+      "images/user-a-3.jpg"
+    ]
+  },
+  {
+    "id": "guitar-same",
+    "case": "case1",
+    "note": "Same gender and age group (woman); medium shot singing at a mic with an acoustic guitar, held object, eyes half closed",
+    "template": "images/guitar-woman.jpg",
+    "user": [
+      "images/user-b-1.jpg",
+      "images/user-b-2.jpg"
+    ]
+  },
+  {
+    "id": "shutter-m2f",
+    "case": "case2_m2f",
+    "note": "Man in the template, woman as the user; frontal, seated against a roller shutter, dreadlocks and beard to replace",
+    "template": "images/shutter-man.jpg",
+    "user": [
+      "images/user-b-1.jpg",
+      "images/user-b-2.jpg"
+    ]
+  },
+  {
+    "id": "cornfield-f2m",
+    "case": "case2_f2m",
+    "note": "Woman in the template, man as the user; slightly turned smile among maize leaves, low warm light",
+    "template": "images/cornfield-woman.jpg",
+    "user": [
+      "images/user-a-1.jpg",
+      "images/user-a-2.jpg"
+    ]
+  },
+  {
+    "id": "frontal-man-a2c",
+    "case": "case3_a2c",
+    "note": "Control: adult in the template, child as the user; checks child-photo safety filters; frontal studio shot",
+    "template": "images/frontal-man-studio.jpg",
+    "user": [
+      "images/user-child-1.jpg"
+    ]
+  },
+  {
+    "id": "umbrella-c2a",
+    "case": "case3_c2a",
+    "note": "Child in the template, adult woman as the user; frontal medium shot holding an open umbrella; adult face must not be de-aged",
+    "template": "images/umbrella-girl.jpg",
+    "user": [
+      "images/user-b-1.jpg",
+      "images/user-b-2.jpg"
+    ]
+  },
+  {
+    "id": "sunset-backlit",
+    "case": "stress",
+    "note": "Backlit against the sun over the sea, lens flare across half the face but still detectable; camera strap",
+    "template": "images/sunset-sea-backlit.jpg",
+    "user": [
+      "images/user-a-1.jpg"
+    ]
+  },
+  {
+    "id": "street-wide",
+    "case": "stress",
+    "note": "Very wide city shot, small frontal face (about 5% of image height) on a bike, motion-blurred traffic and people",
+    "template": "images/street-wide.jpg",
+    "user": [
+      "images/user-a-1.jpg",
+      "images/user-a-2.jpg"
+    ]
+  }
+]
