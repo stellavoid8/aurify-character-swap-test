@@ -18,7 +18,7 @@ export function PhotoGuidance({ highlight = false }: { highlight?: boolean }) {
       aria-label="Tips for good photos"
       className={cn(
         'grid grid-cols-2 gap-3 rounded-md p-3 text-small md:flex md:flex-wrap md:gap-6',
-        highlight ? 'bg-warning-soft' : 'bg-surface-2',
+        highlight ? 'bg-warning-soft' : 'border border-line bg-surface/50 backdrop-blur-md',
       )}
     >
       {TIPS.map(({ Icon, text, struck }) => (

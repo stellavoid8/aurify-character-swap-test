@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { StepIndicator } from '@/components/ui/StepIndicator';
+import { scrollShellToTop } from '@/lib/scroll';
 import { useSwapFlow } from '@/stores/swap-flow';
 import { PhotosStep } from './PhotosStep';
 import { TemplateStep } from './TemplateStep';
@@ -33,7 +34,7 @@ export function CreateFlow({ sid }: { sid: string }) {
   }, [setStep]);
 
   useEffect(() => {
-    window.scrollTo({ top: 0 });
+    scrollShellToTop();
   }, [step]);
 
   const goToPhotos = () => {
@@ -42,7 +43,7 @@ export function CreateFlow({ sid }: { sid: string }) {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5 md:gap-6">
       <StepIndicator current={step} />
       {step === 1 ? (
         <TemplateStep sid={sid} onNext={goToPhotos} />

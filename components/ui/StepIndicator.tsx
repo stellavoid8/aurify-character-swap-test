@@ -5,14 +5,14 @@ const STEPS = ['Template', 'Your photos', 'Result'] as const;
 
 const CIRCLE = {
   done: 'bg-success-soft text-success',
-  current: 'bg-accent text-accent-ink',
+  current: 'bg-accent text-accent-ink shadow-glow',
   upcoming: 'bg-surface-2 text-ink-muted',
 } as const;
 
 export function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
   return (
     <nav aria-label="Progress">
-      <ol className="flex items-center gap-2 md:gap-3">
+      <ol className="flex w-fit items-center gap-2 rounded-pill border border-line bg-surface/50 py-1.5 pr-4 pl-1.5 backdrop-blur-md md:gap-3">
         {STEPS.map((label, index) => {
           const step = index + 1;
           const state = step < current ? 'done' : step === current ? 'current' : 'upcoming';

@@ -10,7 +10,7 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
   }, [error]);
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-6 md:px-8">
+    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 md:px-8 md:py-6">
       <ErrorPanel
         code="INTERNAL_ERROR"
         retryLabel="Start again"
