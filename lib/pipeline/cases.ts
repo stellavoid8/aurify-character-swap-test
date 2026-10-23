@@ -24,3 +24,18 @@ export function detectCases(analysis: TemplateAnalysis): Cases {
 
   return { crossGender, crossAge, direction };
 }
+
+/**
+ * The bake-off case a job falls into, which picks its generator (GENERATOR_BY_CASE in lib/fal/models.ts).
+ * Age outranks gender: an adult man's template with a girl as the user is case3_a2c, since the age
+ * change is the larger edit. Any teen side is `other` (no bake-off pair); `unclear` gender counts as case1.
+ */
+export type SwapCase = 'case1' | 'case2_m2f' | 'case2_f2m' | 'case3_a2c' | 'case3_c2a' | 'other';
+
+export function swapCase(analysis: TemplateAnalysis, cases: Cases = detectCases(analysis)): SwapCase {
+  if (cases.direction === 'adult_to_child') return 'case3_a2c';
+  if (cases.direction === 'child_to_adult') return 'case3_c2a';
+  if (cases.direction === 'teen') return 'other';
+  if (!cases.crossGender) return 'case1';
+  return analysis.template.subject.gender === 'male' ? 'case2_m2f' : 'case2_f2m';
+}

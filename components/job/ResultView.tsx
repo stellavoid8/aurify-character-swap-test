@@ -383,7 +383,7 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
             ) : (
               <>
                 <p className="text-small text-ink-muted">
-                  Try again makes 3 new versions. Fix the face sharpens your likeness on this one.
+                  Try again makes a new version. Fix the face sharpens your likeness on this one.
                 </p>
                 <div className="flex flex-col gap-3 md:flex-row lg:flex-wrap">
                   <Button variant="secondary" size="lg" onClick={onRetry} loading={retrying} disabled={busy || !view.canRetry}>

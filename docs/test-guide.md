@@ -39,9 +39,10 @@ This is the decision gate: the generator in production is still a placeholder (`
 2. Let it finish all 8 pairs. Expect 8 × 3 generator calls plus refine calls (roughly $2–3 at list prices).
 3. Open `bakeoff/out/grid.html` and review by eye. Per pair, judge: is it clearly the user? Is the pose, held object, light and scene kept?
 4. Read `bakeoff/out/summary.md`: mean / min likeness, p50 latency, cost, failures, content blocks per model. Check the **Case detection** table: every pair's detected case matches its label.
-5. Set `PRIMARY_GENERATOR` and, if face-swap looked waxy, `REFINE_MODEL` in `lib/fal/models.ts`.
-6. Fill `docs/decisions/0001-generator.md` and paste `summary.md` between the `BAKEOFF` markers in the README.
-7. `npm run lint && npm test && npm run build`.
+5. Run each spec case on its own, one execution per case: `npm run bakeoff -- --case case1` (man to man), then `case2_m2f`, `case2_f2m`, `case3_a2c` and `case3_c2a`. Finished cells are cached, so add `--rescore` to re-score saved images without paid calls. Check each `bakeoff/out/grid-<case>.html` by eye, and treat a `collage` result as a failure, not a likeness score.
+6. Set `GENERATOR_BY_CASE` from the **Best model per case** tables (after the by-eye check), `PRIMARY_GENERATOR` as the fallback for teens, and, if face-swap looked waxy, `REFINE_MODEL`, all in `lib/fal/models.ts`.
+7. Fill `docs/decisions/0001-generator.md` and paste `summary.md` between the `BAKEOFF` markers in the README.
+8. `npm run lint && npm test && npm run build`.
 
 **Pass:** the chosen model has no content blocks on adult pairs, the best mean likeness or within 0.02 of it at lower cost, and keeps the action in the by-eye review.
 

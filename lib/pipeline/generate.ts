@@ -6,13 +6,13 @@ import { db } from '../db';
 import { candidates, jobRounds, jobs, uploads, type Candidate, type Job, type Upload } from '../db/schema';
 import { AppError, isErrorCode } from '../errors';
 import { submitToQueue } from '../fal/client';
-import { buildInput, PRIMARY_GENERATOR, type FalModel } from '../fal/models';
+import { buildInput, GENERATOR_BY_CASE, type FalModel } from '../fal/models';
 import { CANDIDATES_PER_ROUND } from '../limits';
 import { markStageEnd, markStageStart } from '../telemetry';
 import type { ErrorCode, JobNotice } from '../types';
 import { webhookUrlFor } from '../webhook-token';
 import { analyzeJob } from './analyze';
-import { detectCases } from './cases';
+import { detectCases, swapCase } from './cases';
 import { maybeFinishRound } from './fan-in';
 import { failJob, setStage } from './orchestrator';
 import { selectReference, type ReferenceSelection } from './preprocess';
@@ -20,8 +20,9 @@ import { buildPrompt } from './prompt';
 
 /**
  * The after() work of a generation round: analyze (round 1 only), choose the photos, build the
- * prompt and submit CANDIDATES_PER_ROUND seeded candidates to the fal queue. Results arrive later
- * through the webhook. Never throws: any failure ends the job with a catalogue error code.
+ * prompt and submit CANDIDATES_PER_ROUND seeded candidates to the fal queue, all on the generator
+ * GENERATOR_BY_CASE picks for the job's case. Results arrive later through the webhook. Never
+ * throws: any failure ends the job with a catalogue error code.
  */
 
 /** Postgres `int` seeds, so they fit the column and every generator's seed field. */
@@ -131,6 +132,7 @@ async function generate(jobId: string, roundId: string): Promise<void> {
   }
 
   const cases = detectCases(analysis);
+  const generator = GENERATOR_BY_CASE[swapCase(analysis, cases)];
   const selection = selectReference(userPhotos, analysis);
   const prompt = buildPrompt({
     analysis,
@@ -167,7 +169,7 @@ async function generate(jobId: string, roundId: string): Promise<void> {
         jobId,
         roundId,
         kind: 'generation' as const,
-        model: PRIMARY_GENERATOR,
+        model: generator,
         seed,
         attempt: 1,
         status: 'pending' as const,

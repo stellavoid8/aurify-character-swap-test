@@ -62,6 +62,11 @@ vi.mock('@/lib/pipeline/orchestrator', async (orig) => {
   };
 });
 
+vi.mock('@/lib/limits', async (orig) => ({
+  ...(await orig<typeof import('@/lib/limits')>()),
+  // Production makes one image per round; three exercise the fan-in of concurrent webhooks.
+  CANDIDATES_PER_ROUND: 3,
+}));
 vi.stubEnv('DATABASE_URL', 'postgres://localhost:5432/test');
 vi.stubEnv('APP_URL', 'http://localhost:3000');
 vi.stubEnv('SESSION_SECRET', 'test-secret');
@@ -80,9 +85,9 @@ const { putObject } = await import('@/lib/storage');
 const { env } = await import('@/lib/env');
 const { mockWebhookBody } = await import('@/lib/fal/mock');
 const { webhookUrlFor } = await import('@/lib/webhook-token');
-const { PRIMARY_GENERATOR } = await import('@/lib/fal/models');
 const { FAL_PRICES } = await import('@/lib/fal/pricing');
-const primaryCost = FAL_PRICES[PRIMARY_GENERATOR].perImageUsdMicros;
+/** The generator is picked per case, so each row is priced by its own model. */
+const priceOf = (model: string) => FAL_PRICES[model as keyof typeof FAL_PRICES].perImageUsdMicros;
 
 const SID = '77777777-7777-4777-8777-777777777777';
 const UPLOADS = path.join(process.cwd(), 'public', 'uploads');
@@ -174,7 +179,7 @@ describe('POST /api/webhooks/fal', () => {
     for (const c of rows) {
       expect(c.imageUrl).toBe(`http://localhost:3000/uploads/results/${jobId}/${c.id}.jpg`);
       expect(c.imageUrl).not.toBe(templateUrl);
-      expect(c.costUsdMicros).toBe(primaryCost);
+      expect(c.costUsdMicros).toBe(priceOf(c.model));
       expect(c.latencyMs).toBeGreaterThanOrEqual(0);
       const stored = readFileSync(path.join(UPLOADS, 'results', jobId, `${c.id}.jpg`));
       expect(stored.subarray(0, 2)).toEqual(Buffer.from([0xff, 0xd8]));
@@ -190,7 +195,7 @@ describe('POST /api/webhooks/fal', () => {
 
     const calls = await testDb.select().from(providerCalls).where(eq(providerCalls.stage, 'generating'));
     expect(calls).toHaveLength(3);
-    expect(calls.every((c) => c.provider === 'fal' && c.status === 'ok' && c.costUsdMicros === primaryCost)).toBe(true);
+    expect(calls.every((c) => c.provider === 'fal' && c.status === 'ok' && c.costUsdMicros === priceOf(c.model))).toBe(true);
     const events = await testDb.select().from(webhookEvents);
     expect(events).toHaveLength(3);
     expect(events.every((e) => e.processedAt !== null)).toBe(true);
