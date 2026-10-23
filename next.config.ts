@@ -4,10 +4,10 @@ const ORT_BIN = 'node_modules/onnxruntime-node/bin/napi-v*';
 
 const nextConfig: NextConfig = {
   // Native modules: load from node_modules at runtime instead of bundling.
-  serverExternalPackages: ['sharp', 'heic-convert', 'onnxruntime-node'],
-  // The face models are read from disk at runtime, so tracing cannot see them.
+  serverExternalPackages: ['sharp', 'heic-convert', 'onnxruntime-node', 'ffmpeg-static'],
+  // The face models and the ffmpeg binary (lib/videos.ts) are found at runtime, so tracing cannot see them.
   outputFileTracingIncludes: {
-    '/**': ['./models/**'],
+    '/**': ['./models/**', './node_modules/ffmpeg-static/ffmpeg'],
   },
   // Vercel functions run on linux x64 CPU: drop the other platforms' onnxruntime builds and the GPU providers
   // (only present if installed without .npmrc's onnxruntime-node-install=skip).

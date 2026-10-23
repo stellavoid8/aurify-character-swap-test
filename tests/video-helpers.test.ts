@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAnimateInput,
-  buildNormalizeInput,
-  normalizedSize,
   parseFrameOutput,
   parseVideoMetadata,
   parseVideoOutput,
@@ -28,30 +26,7 @@ describe('parseVideoMetadata', () => {
   });
 });
 
-describe('normalizedSize', () => {
-  it('shrinks the long edge to the limit with even sides', () => {
-    expect(normalizedSize(2160, 3840, 1280)).toEqual({ width: 720, height: 1280 });
-    expect(normalizedSize(1920, 1080, 1280)).toEqual({ width: 1280, height: 720 });
-  });
-
-  it('keeps clips that are already small enough', () => {
-    expect(normalizedSize(1280, 720, 1280)).toBeNull();
-    expect(normalizedSize(null, 720, 1280)).toBeNull();
-  });
-
-  it('keeps the source size when a side would fall under fal’s 512 px minimum', () => {
-    expect(normalizedSize(4000, 1000, 1280)).toBeNull();
-  });
-});
-
 describe('input builders', () => {
-  it('normalize passes the size only when there is one', () => {
-    expect(buildNormalizeInput({ videoUrl: 'v', fps: 24, size: null })).toEqual({ video_urls: ['v'], target_fps: 24 });
-    expect(buildNormalizeInput({ videoUrl: 'v', fps: 24, size: { width: 720, height: 1280 } })).toMatchObject({
-      resolution: { width: 720, height: 1280 },
-    });
-  });
-
   it('animate keeps the output safety check on', () => {
     expect(buildAnimateInput({ videoUrl: 'v', imageUrl: 'i', seed: 7, resolution: '580p' })).toEqual({
       video_url: 'v',

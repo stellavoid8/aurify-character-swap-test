@@ -4,35 +4,16 @@ import { uploads, type NewUpload, type Upload } from '../db/schema';
 import { AppError } from '../errors';
 import { faceEngine, pickSubjectFace, qualityScore, toFaceBox } from '../face';
 import { runUtility, type FalCallContext } from '../fal/client';
-import {
-  buildFrameInput,
-  buildNormalizeInput,
-  FFMPEG_EXTRACT_FRAME,
-  FFMPEG_MERGE,
-  FFMPEG_METADATA,
-  normalizedSize,
-  parseFrameOutput,
-  parseNormalizeOutput,
-  parseVideoMetadata,
-  type FrameType,
-} from '../fal/models';
+import { buildFrameInput, FFMPEG_EXTRACT_FRAME, FFMPEG_METADATA, parseFrameOutput, parseVideoMetadata, type FrameType } from '../fal/models';
 import { normalizeImage } from '../images';
-import {
-  FACE_MIN_AREA_FRAC,
-  FACE_MIN_SCORE,
-  MAX_RESULT_VIDEO_BYTES,
-  MAX_VIDEO_SECONDS,
-  VIDEO_DURATION_TOLERANCE_MS,
-  VIDEO_MAX_LONG_EDGE,
-  VIDEO_TARGET_FPS,
-  VIDEO_UTILITY_TIMEOUT_MS,
-} from '../limits';
+import { FACE_MIN_AREA_FRAC, FACE_MIN_SCORE, MAX_VIDEO_SECONDS, VIDEO_DURATION_TOLERANCE_MS, VIDEO_TARGET_FPS, VIDEO_UTILITY_TIMEOUT_MS } from '../limits';
 import { deleteObjects, fetchObject, putObject } from '../storage';
 import type { Face } from '../types';
+import { normalizeVideo } from '../videos';
 
 /**
- * Upload-time step for a template clip: raw clip → probe → re-encode to VIDEO_TARGET_FPS and at most
- * VIDEO_MAX_LONG_EDGE → our copy → keyframe → one `uploads` row. The row's `url` is the keyframe
+ * Upload-time step for a template clip: raw clip → probe (fal) → re-encode to VIDEO_TARGET_FPS and at most
+ * VIDEO_MAX_LONG_EDGE (local ffmpeg, lib/videos.ts) → our copy → keyframe → one `uploads` row. The row's `url` is the keyframe
  * JPEG, so analysis, reference selection and the generators work on a clip as on a photo.
  * Every check failure throws (VIDEO_TOO_LONG, VIDEO_DECODE_FAILED, VIDEO_MULTIPLE_PEOPLE) and leaves
  * no row and no stored copy. The raw clip is deleted in every case, as raw photos are.
@@ -53,15 +34,7 @@ export async function preprocessVideoUpload({ sid, rawUrl }: { sid: string; rawU
       throw new AppError('VIDEO_TOO_LONG', { detail: `clip is ${meta.durationMs} ms` });
     }
 
-    const normalized = parseNormalizeOutput(
-      await utility(
-        FFMPEG_MERGE,
-        buildNormalizeInput({ videoUrl: rawUrl, fps: VIDEO_TARGET_FPS, size: normalizedSize(meta.width, meta.height, VIDEO_MAX_LONG_EDGE) }),
-        context,
-      ),
-    );
-    if (!normalized.videoUrl) throw new AppError('VIDEO_DECODE_FAILED', { detail: 're-encode returned no video' });
-    const clip = await fetchObject(normalized.videoUrl, { maxBytes: MAX_RESULT_VIDEO_BYTES });
+    const clip = await normalizeVideo(rawUrl);
     const { url: videoUrl } = await putObject(`sessions/${sid}/clips/${crypto.randomUUID()}.mp4`, clip, 'video/mp4');
     stored.push(videoUrl);
 
