@@ -4,5 +4,5 @@ import { cn } from '@/lib/cn';
 type CardProps = ComponentProps<'div'> & { as?: 'div' | 'section' | 'article' | 'figure' };
 
 export function Card({ as: Tag = 'div', className, ...props }: CardProps) {
-  return <Tag className={cn('rounded-lg bg-surface p-4 shadow-card md:p-6', className)} {...props} />;
+  return <Tag className={cn('rounded-lg border border-line bg-surface/70 p-4 shadow-card backdrop-blur-md md:p-6', className)} {...props} />;
 }

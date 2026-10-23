@@ -14,8 +14,8 @@ export const REFINE_MODEL = 'fal-ai/face-swap';
 export type GeneratorModel = (typeof GENERATOR_CANDIDATES)[number];
 export type FalModel = GeneratorModel | typeof REFINE_MODEL;
 
-/** Replaced by the bake-off winner (prompt 8). */
-export const PRIMARY_GENERATOR: GeneratorModel = GENERATOR_CANDIDATES[0];
+/** Bake-off winner, see docs/decisions/0001-generator.md. */
+export const PRIMARY_GENERATOR: GeneratorModel = 'fal-ai/bytedance/seedream/v4.5/edit';
 
 export type BuildInputArgs = {
   prompt: string;

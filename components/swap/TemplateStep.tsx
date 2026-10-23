@@ -113,7 +113,7 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
         <Dropzone onFiles={([file]) => void pick(file)} />
       ) : (
         <div className="flex flex-col gap-6 md:grid md:grid-cols-5 md:items-start">
-          <div className="flex justify-center rounded-lg bg-surface-2 p-2 md:col-span-3">
+          <div className="flex justify-center rounded-lg border border-line bg-surface/50 p-2 backdrop-blur-md md:col-span-3">
             {previewBroken && !upload?.url ? (
               <div className="flex min-h-56 flex-col items-center justify-center gap-2 text-small text-ink-muted">
                 <ImageOff aria-hidden className="size-6" />
@@ -127,7 +127,7 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
                   alt="Your template photo"
                   onError={() => setPreviewBroken(true)}
                   // Shorter on phones so "Next: your photos" stays above the fold.
-                  className="block max-h-[45dvh] w-auto max-w-full rounded-md object-contain md:max-h-[60vh]"
+                  className="block max-h-[45dvh] w-auto max-w-full rounded-md object-contain md:max-h-[calc(100dvh-20rem)]"
                 />
                 {upload && upload.faceCount > 1 && upload.subjectBox && (
                   <span

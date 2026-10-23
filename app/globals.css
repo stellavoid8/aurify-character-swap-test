@@ -6,34 +6,41 @@
  */
 @theme {
   --color-*: initial;
-  --color-bg: #fafaf7;
-  --color-surface: #ffffff;
-  --color-surface-2: #f2f1ec;
-  --color-ink: #17171a;
-  --color-ink-muted: #5d5d66;
-  --color-line: #e4e2da;
-  --color-accent: #3a5bff;
-  --color-accent-hover: #2c47d9;
+  --color-bg: #0b061d;
+  --color-surface: #140c30;
+  --color-surface-2: #1e1442;
+  --color-ink: #f6f3ff;
+  --color-ink-muted: #b4abd6;
+  --color-line: #2f2461;
+  --color-accent: #7c2cf6;
+  --color-accent-hover: #9047ff;
   --color-accent-ink: #ffffff;
-  --color-accent-soft: #e8ecff;
-  --color-success: #1f8a4c;
-  --color-success-soft: #e5f4ea;
-  --color-danger: #c2362b;
-  --color-danger-soft: #fbe9e7;
-  --color-warning: #8a5a00;
-  --color-warning-soft: #fff3d6;
+  --color-accent-soft: #2a1866;
+  --color-success: #3ccf8e;
+  --color-success-soft: #0f3029;
+  --color-danger: #ff7a7a;
+  --color-danger-soft: #3d1328;
+  --color-warning: #ffc35c;
+  --color-warning-soft: #3a2a10;
+  /* Backdrop only: the light ribbons and glows behind every screen. */
+  --color-glow-violet: #b04bff;
+  --color-glow-indigo: #5b21d6;
+  --color-glow-blue: #6d8dff;
 
-  /* Fallbacks only: next/font sets --font-sans (Inter) and --font-display (Bricolage Grotesque) on <html>. */
+  /* Fallbacks only: next/font sets --font-sans and --font-display (both Urbanist) on <html>. */
   --font-sans: ui-sans-serif, system-ui, sans-serif;
   --font-display: ui-sans-serif, system-ui, sans-serif;
 
-  /* Pair text-display / text-title with font-display. */
-  --text-display: 2rem;
-  --text-display--line-height: 2.375rem;
-  --text-display--font-weight: 700;
-  --text-title: 1.5rem;
-  --text-title--line-height: 1.875rem;
-  --text-title--font-weight: 600;
+  /* Pair text-hero / text-display / text-title with font-display. */
+  --text-hero: 4rem;
+  --text-hero--line-height: 4.25rem;
+  --text-hero--font-weight: 500;
+  --text-display: 3rem;
+  --text-display--line-height: 3.25rem;
+  --text-display--font-weight: 500;
+  --text-title: 1.75rem;
+  --text-title--line-height: 2.125rem;
+  --text-title--font-weight: 500;
   --text-heading: 1.125rem;
   --text-heading--line-height: 1.5rem;
   --text-heading--font-weight: 600;
@@ -54,11 +61,24 @@
   --radius-pill: 9999px;
 
   --shadow-*: initial;
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.06);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 40px rgb(0 0 0 / 0.35);
+  --shadow-glow: 0 0 0 1px rgb(255 255 255 / 0.08) inset, 0 8px 28px rgb(124 44 246 / 0.45);
 }
 
 @layer base {
+  html {
+    color-scheme: dark;
+  }
+
   body {
     @apply bg-bg text-ink font-sans;
+  }
+}
+
+/* Scrolls when content is taller than the screen, without ever showing a scrollbar. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
   }
 }
