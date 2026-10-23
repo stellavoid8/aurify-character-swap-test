@@ -4,6 +4,7 @@ import { TemplateAnalysis } from '@/lib/ai/schemas';
 import { db } from '@/lib/db';
 import { candidates, jobRounds, uploads, type Job } from '@/lib/db/schema';
 import { ERRORS, formatNotice, isErrorCode } from '@/lib/errors';
+import { generatorLabel } from '@/lib/fal/models';
 import { MAX_ROUNDS_PER_JOB } from '@/lib/limits';
 import { enforceTimeout } from '@/lib/pipeline/timeout';
 import { unitsLeftToday } from '@/lib/rate-limit';
@@ -66,6 +67,7 @@ export async function getJobView(sid: string, jobId: string): Promise<JobView> {
       id: c.id,
       round: n,
       kind: c.kind,
+      modelLabel: generatorLabel(c.model),
       status: c.status,
       imageUrl: c.imageUrl,
       identityScore: c.identityScore,

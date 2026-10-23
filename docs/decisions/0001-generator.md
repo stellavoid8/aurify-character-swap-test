@@ -2,6 +2,9 @@
 
 Status: **accepted**, 2026-10-23, after `npm run bakeoff` and a by-eye review of `bakeoff/out/grid.html`.
 Revised the same day: the generator is now picked per case (`GENERATOR_BY_CASE`), from one bake-off execution per case.
+Revised again the same day: every round now makes one image on each of the three generators, and the result screen
+shows each with its model and likeness score. `GENERATOR_BY_CASE` is kept as the record of the per-case winners but no
+longer routes jobs. See the last consequence below.
 
 ## Context
 
@@ -136,7 +139,11 @@ describe the failure in words. Never commit bake-off photos of real faces withou
 
 ## Consequences
 
-- **One image per round:** `CANDIDATES_PER_ROUND` = 1, on the case's generator. There is no ranking safety net any more:
+- **Superseded, one image per model:** each round now submits one candidate per model in `GENERATOR_CANDIDATES`
+  (`generate.ts`), ranked by likeness. A round costs $0.27 in fal list price ($0.15 + $0.04 + $0.08) whatever the case,
+  and finishes when the slowest model does (seedream, p50 44.6 s). The two bullets below on cost and one image per
+  round describe the earlier setup.
+- **One image per round (earlier):** `CANDIDATES_PER_ROUND` = 1, on the case's generator. There is no ranking safety net any more:
   a miss such as seedream keeping the template face goes straight to the user, who can use Try again or Fix the face.
   The fan-in code still handles several candidates per round, and its tests pin the count to 3.
 - **Cost:** a round is $0.15 in fal list price for case 1 (nano-banana-pro) and $0.04 for every other case (seedream),

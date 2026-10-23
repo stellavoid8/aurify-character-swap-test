@@ -6,13 +6,12 @@ import { db } from '../db';
 import { candidates, jobRounds, jobs, uploads, type Candidate, type Job, type Upload } from '../db/schema';
 import { AppError, isErrorCode } from '../errors';
 import { submitToQueue } from '../fal/client';
-import { buildInput, GENERATOR_BY_CASE, type FalModel } from '../fal/models';
-import { CANDIDATES_PER_ROUND } from '../limits';
+import { buildInput, GENERATOR_CANDIDATES, type FalModel } from '../fal/models';
 import { markStageEnd, markStageStart } from '../telemetry';
 import type { ErrorCode, JobNotice } from '../types';
 import { webhookUrlFor } from '../webhook-token';
 import { analyzeJob } from './analyze';
-import { detectCases, swapCase } from './cases';
+import { detectCases } from './cases';
 import { maybeFinishRound } from './fan-in';
 import { failJob, setStage } from './orchestrator';
 import { selectReference, type ReferenceSelection } from './preprocess';
@@ -20,8 +19,8 @@ import { buildPrompt } from './prompt';
 
 /**
  * The after() work of a generation round: analyze (round 1 only), choose the photos, build the
- * prompt and submit CANDIDATES_PER_ROUND seeded candidates to the fal queue, all on the generator
- * GENERATOR_BY_CASE picks for the job's case. Results arrive later through the webhook. Never
+ * prompt and submit one seeded candidate per model in GENERATOR_CANDIDATES to the fal queue, so the
+ * user sees every model's version side by side. Results arrive later through the webhook. Never
  * throws: any failure ends the job with a catalogue error code.
  */
 
@@ -132,7 +131,6 @@ async function generate(jobId: string, roundId: string): Promise<void> {
   }
 
   const cases = detectCases(analysis);
-  const generator = GENERATOR_BY_CASE[swapCase(analysis, cases)];
   const selection = selectReference(userPhotos, analysis);
   const prompt = buildPrompt({
     analysis,
@@ -165,11 +163,11 @@ async function generate(jobId: string, roundId: string): Promise<void> {
   const inserted = await db
     .insert(candidates)
     .values(
-      distinctSeeds(CANDIDATES_PER_ROUND).map((seed) => ({
+      distinctSeeds(GENERATOR_CANDIDATES.length).map((seed, i) => ({
         jobId,
         roundId,
         kind: 'generation' as const,
-        model: generator,
+        model: GENERATOR_CANDIDATES[i],
         seed,
         attempt: 1,
         status: 'pending' as const,
