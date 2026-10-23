@@ -2,7 +2,7 @@
 
 Upload a photo of someone doing something, add one to four photos of yourself, and get the same moment back with you in it.
 Your face, age, gender and build come from your photos; the pose, action, held objects, camera, light and scene come from the template.
-Three steps: **Template → Your photos → Result.** Photo only.
+Three steps: **Template → Your photos → Result.** With `VIDEO_ENABLED=true` the template can also be a clip of up to 15 seconds, and the result is that clip with you in it ([video track](#video-track)).
 
 **Live:** TODO(real run): production URL. The access code is in the email.
 
@@ -57,6 +57,16 @@ flowchart LR
   B -- poll GET /api/jobs/:id --> API
 ```
 
+## Video track
+
+Off unless `VIDEO_ENABLED=true`. Design and open questions: [`docs/decisions/0002-video-swap-architecture.md`](docs/decisions/0002-video-swap-architecture.md).
+
+- **Upload:** the browser sends the clip straight to Blob (up to 200 MB, multipart). `normalizeUpload` probes it on fal's ffmpeg, rejects anything over 15 s, re-encodes it to 24 fps and at most 720p (fal bills video per frame, so this bounds the cost), and keeps the best of its first, middle and last frames as the keyframe. The keyframe is the upload's image, so the whole photo pipeline runs on it unchanged.
+- **Job:** round 1 makes the usual three stills from the keyframe. When it ranks, the orchestrator opens an animation round in the same transaction: `fal-ai/wan/v2.2-14b/animate/replace` gets the clip and the best still, through the same queue, webhook and fan-in. The stills show while the video renders, and **Animate this one** makes a video of any other still.
+- **Result:** the video becomes the chosen version, scored for likeness at its first, middle and last frames (the lowest is shown). If it fails or runs past its 25 minutes, the job keeps its stills with a notice.
+- **Cost and limits:** about $1.35 per 15 s clip at 580p, plus about $0.27 for the stills. An animation round counts 5 units, and a video job needs all 6 up front.
+- **Locally:** it runs on the mocks. The mock "video" is the template clip itself.
+
 ## Identity rule
 
 **The user wins on who they are, the template wins on what is happening.** If the template shows a woman and the user is a man, the result is the man in the same pose, place and light. The same goes for adult and child. Clothing keeps the template's style but is fitted to the user's body. Hairstyle comes from the user.
@@ -81,7 +91,7 @@ TODO(real run): paste `bakeoff/out/summary.md` here after `npm run bakeoff`.
 
 **Dropped:** TODO(real run): one image per dropped generator, from [`docs/decisions/0001-generator.md`](docs/decisions/0001-generator.md).
 
-**Why not video:** hosted video models limit clip length, so a longer clip means stitching chunks, and the face drifts from one chunk to the next. Holding identity is the whole point of the product, so it ships photo only.
+**Video:** the spec ruled it out because long clips meant stitching chunks and the face drifting between them. The [video track](#video-track) answers that with short clips (15 s, one model call) driven by a likeness-ranked still. It ships behind `VIDEO_ENABLED` until the video bake-off (`npm run bakeoff:video`) confirms 15 s holds up. See [`docs/decisions/0002-video-swap-architecture.md`](docs/decisions/0002-video-swap-architecture.md).
 
 ## Measured cost and time
 
@@ -130,11 +140,11 @@ TODO(real run): what happened · how often (n/N) · why. What the app does: a co
 
 ## Engineering notes
 
-- **No request runs inference.** Route handlers and actions return in under a second, and generation and Claude calls run in `after()` or on fal. The one exception is `normalizeUpload`: CPU face detection and embedding (under 1.5 s) run inside the action, so a photo that won't work is rejected while the user is still on that step. Ranking runs in `after()` of the last webhook.
+- **No request runs inference.** Route handlers and actions return in under a second, and generation and Claude calls run in `after()` or on fal. The one exception is `normalizeUpload`: CPU face detection and embedding (under 1.5 s) run inside the action, so a photo that won't work is rejected while the user is still on that step. For a clip it also makes synchronous calls to fal's ffmpeg endpoints (probe, re-encode, three frame grabs), each with a 60 s timeout, under the page's 120 s `maxDuration`. Ranking runs in `after()` of the last webhook.
 - **Webhooks:** each fal attempt gets its own URL with an HMAC token over `candidate id:attempt`, checked before the body is read. `webhook_events` is unique on `(provider, request_id, status)`, so a replay is acknowledged and dropped. Candidate writes are conditional on `(id, attempt, status = 'pending')`.
 - **Atomic fan-in:** the round moves on only through a conditional `running → …` update on `job_rounds`, so exactly one webhook advances the job however many arrive at once.
-- **Timeouts and retries:** a job has 6 minutes. The limit is applied lazily on read and by the daily cron. A provider error is retried once with a new seed. A content refusal is not retried. A Fix the face round that runs out of time returns the original picture with a notice.
-- **Rate limits:** one `job_rounds` row is one unit. A session gets 20 a day and the whole app gets `GLOBAL_DAILY_UNITS`. Both are counted in Postgres under an advisory lock, so two requests can't both take the last unit.
+- **Timeouts and retries:** a job has 6 minutes (an animation round 25). The limit is applied lazily on read and by the daily cron. A provider error is retried once with a new seed. A content refusal is not retried. A Fix the face or animation round that runs out of time returns the picture it had, with a notice.
+- **Rate limits:** a `job_rounds` row counts its `units`: 1, or 5 for an animation round. A session gets 20 a day and the whole app gets `GLOBAL_DAILY_UNITS`. Both are counted in Postgres under an advisory lock, so two requests can't both take the last unit.
 - **Retention:** uploads and results are deleted after `RETENTION_DAYS` (default 10). Uploads no job uses are deleted after 24 hours.
 - **Images:** results are served through `next/image` with `sizes`, so phones download a thumbnail-sized copy. Each stored image is transformed once per width and then cached. Check the Vercel image-optimization usage against the plan's quota after the first days of grading.
 - **InsightFace licence:** the code is MIT, but the pretrained `buffalo_s` weights are for non-commercial research use only. They're fine for this take-home. A commercial launch needs a licence from InsightFace or a differently licensed face model behind `lib/face/`.

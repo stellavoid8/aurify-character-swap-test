@@ -6,22 +6,47 @@ import { Button } from '@/components/ui/Button';
 import { Notice } from '@/components/ui/Notice';
 import { Spinner } from '@/components/ui/Spinner';
 import { AppError, ERRORS, formatNotice } from '@/lib/errors';
+import { MAX_VIDEO_SECONDS } from '@/lib/limits';
 import type { ErrorCode } from '@/lib/types';
-import { preResize, uploadFile, validateFile } from '@/lib/upload-client';
+import { checkVideoDuration, isVideoFile, preResize, uploadFile, validateFile } from '@/lib/upload-client';
 import { normalizeUpload } from '@/server/uploads/actions';
 import { useSwapFlow, type SlotState } from '@/stores/swap-flow';
-import { Dropzone, FILE_ACCEPT } from './Dropzone';
+import { Dropzone, FILE_ACCEPT, VIDEO_FILE_ACCEPT } from './Dropzone';
 
 /** Codes that mean "this file won't work", as opposed to a transient failure worth retrying. */
-const REJECT_CODES: ErrorCode[] = ['UNSUPPORTED_FILE_TYPE', 'FILE_TOO_LARGE', 'IMAGE_DECODE_FAILED'];
+const REJECT_CODES: ErrorCode[] = [
+  'UNSUPPORTED_FILE_TYPE',
+  'FILE_TOO_LARGE',
+  'IMAGE_DECODE_FAILED',
+  'VIDEO_TOO_LONG',
+  'VIDEO_TOO_LARGE',
+  'VIDEO_DECODE_FAILED',
+  'VIDEO_MULTIPLE_PEOPLE',
+  'VIDEO_UNAVAILABLE',
+];
 
-const STATUS_TEXT: Record<SlotState['status'], string> = {
-  uploading: 'Uploading photo…',
-  checking: 'Checking photo…',
-  ok: 'Photo ready.',
-  rejected: "This photo can't be used.",
-  error: "The photo didn't upload.",
+const STATUS_TEXT: Record<'image' | 'video', Record<SlotState['status'], string>> = {
+  image: {
+    uploading: 'Uploading photo…',
+    checking: 'Checking photo…',
+    ok: 'Photo ready.',
+    rejected: "This photo can't be used.",
+    error: "The photo didn't upload.",
+  },
+  video: {
+    uploading: 'Uploading clip…',
+    checking: 'Preparing your clip…',
+    ok: 'Clip ready.',
+    rejected: "This clip can't be used.",
+    error: "The clip didn't upload.",
+  },
 };
+
+/** 4_200 → "0:04" */
+function clipLength(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
 
 function ErrorNotice({ code, onRetry }: { code: ErrorCode; onRetry?: () => void }) {
   const { message, nextStep } = ERRORS[code];
@@ -39,7 +64,8 @@ function ErrorNotice({ code, onRetry }: { code: ErrorCode; onRetry?: () => void 
   );
 }
 
-export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void }) {
+/** Step 1. With `videoEnabled`, the template can also be a clip of up to MAX_VIDEO_SECONDS. */
+export function TemplateStep({ sid, videoEnabled, onNext }: { sid: string; videoEnabled: boolean; onNext: () => void }) {
   const template = useSwapFlow((s) => s.template);
   const setTemplate = useSwapFlow((s) => s.setTemplate);
   const updateSlot = useSwapFlow((s) => s.updateSlot);
@@ -50,7 +76,10 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
   const fileRef = useRef<File | null>(null);
   const replaceInput = useRef<HTMLInputElement>(null);
 
+  const accept = videoEnabled ? `${FILE_ACCEPT},${VIDEO_FILE_ACCEPT}` : FILE_ACCEPT;
+
   async function run(localId: string, file: File) {
+    const media = isVideoFile(file) ? 'video' : 'image';
     updateSlot(localId, { status: 'uploading', progress: 0, errorCode: undefined });
     let rawUrl: string;
     try {
@@ -62,7 +91,7 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
     }
 
     updateSlot(localId, { status: 'checking', progress: 1 });
-    const result = await normalizeUpload({ kind: 'template', rawUrl }).catch(() => null);
+    const result = await normalizeUpload({ kind: 'template', media, rawUrl }).catch(() => null);
     if (!result) {
       updateSlot(localId, { status: 'error', errorCode: 'UPLOAD_FAILED' });
     } else if (!result.ok) {
@@ -74,15 +103,17 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
   }
 
   async function pick(original: File) {
-    const code = validateFile(original);
+    const video = videoEnabled && isVideoFile(original);
+    const code = validateFile(original, { allowVideo: videoEnabled }) ?? (video ? await checkVideoDuration(original) : null);
     setPickError(code);
     if (code) return;
 
-    const file = await preResize(original);
+    // Clips go up as they are; the server re-encodes them.
+    const file = video ? original : await preResize(original);
     const localId = crypto.randomUUID();
     fileRef.current = file;
     setPreviewBroken(false);
-    setTemplate({ localId, previewUrl: URL.createObjectURL(file), status: 'uploading', progress: 0 });
+    setTemplate({ localId, previewUrl: URL.createObjectURL(file), mediaType: video ? 'video' : 'image', status: 'uploading', progress: 0 });
     await run(localId, file);
   }
 
@@ -91,33 +122,67 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
   };
 
   const upload = template?.upload;
+  const isClip = template?.mediaType === 'video';
+  const media = isClip ? 'video' : 'image';
   // The server's JPEG once it exists: the local preview can't render HEIC outside Safari.
   const previewSrc = upload?.url ?? template?.previewUrl;
+  // The server's re-encoded MP4 once it exists: the local preview can't play every codec (HEVC .mov in Chrome).
+  const clipSrc = upload?.videoUrl ?? template?.previewUrl;
 
   return (
     <section aria-labelledby="template-heading" className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
         <h1 id="template-heading" className="font-display text-title">
-          Pick a photo to step into
+          {videoEnabled ? 'Pick a photo or clip to step into' : 'Pick a photo to step into'}
         </h1>
-        <p className="text-body text-ink-muted">Any photo of someone doing something: jumping, laughing, playing sport.</p>
+        <p className="text-body text-ink-muted">
+          {videoEnabled
+            ? `Any photo, or a clip of up to ${MAX_VIDEO_SECONDS} seconds, of someone doing something: jumping, laughing, playing sport.`
+            : 'Any photo of someone doing something: jumping, laughing, playing sport.'}
+        </p>
       </div>
 
       <p aria-live="polite" className="sr-only">
-        {template ? STATUS_TEXT[template.status] : ''}
+        {template ? STATUS_TEXT[media][template.status] : ''}
       </p>
 
       {pickError && <ErrorNotice code={pickError} />}
 
       {!template ? (
-        <Dropzone onFiles={([file]) => void pick(file)} />
+        <Dropzone
+          onFiles={([file]) => void pick(file)}
+          accept={accept}
+          {...(videoEnabled && {
+            title: 'Choose a photo or clip',
+            hint: `or drag it here · photos up to 25 MB · clips up to ${MAX_VIDEO_SECONDS} s`,
+          })}
+        />
       ) : (
         <div className="flex flex-col gap-6 md:grid md:grid-cols-5 md:items-start">
           <div className="flex justify-center rounded-lg border border-line bg-surface/50 p-2 backdrop-blur-md md:col-span-3">
-            {previewBroken && !upload?.url ? (
+            {isClip && !(previewBroken && !upload?.videoUrl) ? (
+              <div className="flex flex-col items-center gap-2">
+                <video
+                  key={clipSrc}
+                  src={clipSrc}
+                  poster={upload?.url ?? undefined}
+                  aria-label="Your template clip"
+                  muted
+                  loop
+                  autoPlay
+                  playsInline
+                  controls
+                  onError={() => setPreviewBroken(true)}
+                  className="block max-h-[45dvh] w-auto max-w-full rounded-md bg-surface-2 object-contain md:max-h-[calc(100dvh-20rem)]"
+                />
+                {upload?.durationMs != null && (
+                  <span className="text-caption text-ink-muted tabular-nums">Clip length {clipLength(upload.durationMs)}</span>
+                )}
+              </div>
+            ) : previewBroken && !upload?.url ? (
               <div className="flex min-h-56 flex-col items-center justify-center gap-2 text-small text-ink-muted">
                 <ImageOff aria-hidden className="size-6" />
-                The preview appears once the photo is checked.
+                {isClip ? 'The preview appears once the clip is ready.' : 'The preview appears once the photo is checked.'}
               </div>
             ) : (
               <div className="relative inline-block">
@@ -149,7 +214,7 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
           <div className="flex flex-col gap-4 md:col-span-2">
             {template.status === 'uploading' && (
               <div className="flex flex-col gap-2">
-                <p className="text-small text-ink-muted">Uploading…</p>
+                <p className="text-small text-ink-muted">{isClip ? 'Uploading clip…' : 'Uploading…'}</p>
                 <div
                   role="progressbar"
                   aria-label="Upload progress"
@@ -165,7 +230,7 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
             {template.status === 'checking' && (
               <p className="flex items-center gap-2 text-body text-ink-muted">
                 <Spinner className="text-accent" />
-                Checking photo…
+                {isClip ? 'Preparing your clip… this can take up to a minute.' : 'Checking photo…'}
               </p>
             )}
             {template.status === 'ok' && upload && upload.faceCount === 0 && (
@@ -190,12 +255,12 @@ export function TemplateStep({ sid, onNext }: { sid: string; onNext: () => void 
                 onClick={() => replaceInput.current?.click()}
                 className="md:w-full"
               >
-                Choose a different photo
+                {videoEnabled ? 'Choose a different one' : 'Choose a different photo'}
               </Button>
               <input
                 ref={replaceInput}
                 type="file"
-                accept={FILE_ACCEPT}
+                accept={accept}
                 tabIndex={-1}
                 aria-hidden
                 className="sr-only"

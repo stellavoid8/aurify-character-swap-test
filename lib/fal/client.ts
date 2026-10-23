@@ -3,13 +3,14 @@ import { ApiError, fal } from '@fal-ai/client';
 import { env, useMockFal } from '../env';
 import { AppError } from '../errors';
 import { recordCall, type CallRecord } from '../telemetry';
-import { mockSubmit } from './mock';
-import { parseOutput, type FalModel } from './models';
-import { falCostMicros } from './pricing';
+import { mockSubmit, mockUtility } from './mock';
+import { parseOutput, parseVideoOutput, VIDEO_MODEL, type AnimationResolution, type FalModel, type QueueModel, type UtilityModel } from './models';
+import { falCostMicros, falVideoCostMicros, UTILITY_CALL_USD_MICROS } from './pricing';
 
 /**
  * The only module that talks to fal. Generation always goes through the queue with a webhook;
  * `runSync` exists for scripts (bake-off, smoke tests) and must not be called from a request.
+ * `runUtility` is the one synchronous call allowed in a request: fal's ffmpeg endpoints, under a hard timeout.
  *
  * Telemetry: a queued request's provider_calls row (latency, cost) is written by the webhook
  * handler when the result arrives. submitToQueue only records a row when the submission fails.
@@ -41,7 +42,7 @@ export async function submitToQueue({
   webhookUrl,
   context,
 }: {
-  model: FalModel;
+  model: QueueModel;
   input: Record<string, unknown>;
   webhookUrl: string;
   context?: FalCallContext;
@@ -116,6 +117,105 @@ export async function runSync({
       stage: context?.stage ?? 'run_sync',
       provider: 'fal',
       model,
+      requestId: err instanceof ApiError ? err.requestId || null : null,
+      status: 'error',
+      latencyMs: performance.now() - started,
+      costUsdMicros: 0,
+      meta: { error: appError.code },
+    });
+    throw appError;
+  }
+}
+
+/**
+ * One synchronous call to a fal ffmpeg endpoint (probe, re-encode, frame grab), for the video
+ * upload path. Aborts after `timeoutMs`. Writes one provider_calls row. Returns fal's raw output.
+ */
+export async function runUtility({
+  model,
+  input,
+  timeoutMs,
+  context,
+}: {
+  model: UtilityModel;
+  input: Record<string, unknown>;
+  timeoutMs: number;
+  context?: FalCallContext;
+}): Promise<unknown> {
+  if (useMockFal) return mockUtility(model, input);
+
+  const started = performance.now();
+  try {
+    // fal types each endpoint's input; ours are built by the typed helpers in models.ts.
+    const result = await fal.subscribe(model, { input: input as never, logs: false, abortSignal: AbortSignal.timeout(timeoutMs) });
+    await recordCall({
+      ...context,
+      stage: context?.stage ?? 'utility',
+      provider: 'fal',
+      model,
+      requestId: result.requestId,
+      status: 'ok',
+      latencyMs: performance.now() - started,
+      costUsdMicros: UTILITY_CALL_USD_MICROS,
+    });
+    return result.data;
+  } catch (err) {
+    const appError = toAppError(err);
+    await recordCall({
+      ...context,
+      stage: context?.stage ?? 'utility',
+      provider: 'fal',
+      model,
+      requestId: err instanceof ApiError ? err.requestId || null : null,
+      status: 'error',
+      latencyMs: performance.now() - started,
+      costUsdMicros: 0,
+      meta: { error: appError.code, status: err instanceof ApiError ? err.status : null },
+    });
+    throw appError;
+  }
+}
+
+/**
+ * Blocking VIDEO_MODEL call for scripts (the video bake-off). Never call it from a request. Writes one
+ * provider_calls row, priced from `frames` (the input clip's frame count).
+ */
+export async function runVideoSync({
+  input,
+  frames,
+  resolution,
+  context,
+}: {
+  input: Record<string, unknown>;
+  frames: number;
+  resolution: AnimationResolution;
+  context?: FalCallContext;
+}): Promise<{ requestId: string; videoUrl: string | null; latencyMs: number }> {
+  if (useMockFal) throw new Error('runVideoSync needs FAL_KEY');
+  const started = performance.now();
+  try {
+    const result = await fal.subscribe(VIDEO_MODEL, { input: input as never, logs: false });
+    const { videoUrl } = parseVideoOutput(result.data);
+    const latencyMs = performance.now() - started;
+    await recordCall({
+      ...context,
+      stage: context?.stage ?? 'run_sync',
+      provider: 'fal',
+      model: VIDEO_MODEL,
+      requestId: result.requestId,
+      status: videoUrl ? 'ok' : 'error',
+      latencyMs,
+      costUsdMicros: videoUrl ? falVideoCostMicros(frames, resolution) : 0,
+      meta: { frames, resolution },
+    });
+    return { requestId: result.requestId, videoUrl, latencyMs };
+  } catch (err) {
+    const appError = toAppError(err);
+    await recordCall({
+      ...context,
+      stage: context?.stage ?? 'run_sync',
+      provider: 'fal',
+      model: VIDEO_MODEL,
       requestId: err instanceof ApiError ? err.requestId || null : null,
       status: 'error',
       latencyMs: performance.now() - started,
