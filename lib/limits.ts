@@ -22,8 +22,6 @@ export const CLIENT_PRERESIZE_LONG_EDGE = 2560;
 export const FETCH_TIMEOUT_MS = 30_000;
 
 // Generation
-/** One image per round, from the case's best bake-off generator (GENERATOR_BY_CASE). */
-export const CANDIDATES_PER_ROUND = 1;
 export const MAX_AUTO_RETRIES = 1;
 export const MAX_ROUNDS_PER_JOB = 6;
 export const JOB_TIMEOUT_MS = 6 * 60_000;

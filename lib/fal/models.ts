@@ -10,6 +10,13 @@ export const GENERATOR_CANDIDATES = [
   'fal-ai/flux-pro/kontext/max/multi',
 ] as const;
 
+/** The name the result screen shows under each image. */
+const GENERATOR_LABELS: Record<GeneratorModel, string> = {
+  'fal-ai/nano-banana-pro/edit': 'Nano Banana Pro',
+  'fal-ai/bytedance/seedream/v4.5/edit': 'Seedream 4.5',
+  'fal-ai/flux-pro/kontext/max/multi': 'FLUX Kontext Max',
+};
+
 export const REFINE_MODEL = 'fal-ai/face-swap';
 
 export type GeneratorModel = (typeof GENERATOR_CANDIDATES)[number];
@@ -18,7 +25,10 @@ export type FalModel = GeneratorModel | typeof REFINE_MODEL;
 /** Bake-off winner overall; the generator for cases the bake-off has no pair for. See docs/decisions/0001-generator.md. */
 export const PRIMARY_GENERATOR: GeneratorModel = 'fal-ai/bytedance/seedream/v4.5/edit';
 
-/** Per-case bake-off winners (likeness, then a by-eye check), see docs/decisions/0001-generator.md. */
+/**
+ * Per-case bake-off winners (likeness, then a by-eye check), see docs/decisions/0001-generator.md.
+ * Not used for routing: every round makes one image on each of GENERATOR_CANDIDATES.
+ */
 export const GENERATOR_BY_CASE: Record<SwapCase, GeneratorModel> = {
   case1: 'fal-ai/nano-banana-pro/edit',
   case2_m2f: 'fal-ai/bytedance/seedream/v4.5/edit',
@@ -27,6 +37,11 @@ export const GENERATOR_BY_CASE: Record<SwapCase, GeneratorModel> = {
   case3_c2a: 'fal-ai/bytedance/seedream/v4.5/edit',
   other: PRIMARY_GENERATOR,
 };
+
+/** A generator's display name; null for anything else (Fix the face results). */
+export function generatorLabel(model: string): string | null {
+  return (GENERATOR_LABELS as Record<string, string>)[model] ?? null;
+}
 
 export type BuildInputArgs = {
   prompt: string;

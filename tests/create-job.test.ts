@@ -49,7 +49,7 @@ vi.stubEnv('GLOBAL_DAILY_UNITS', '1000');
 const { POST } = await import('@/app/api/jobs/route');
 const { signSession, newSessionPayload } = await import('@/lib/session');
 const { AppError } = await import('@/lib/errors');
-const { GENERATOR_BY_CASE } = await import('@/lib/fal/models');
+const { GENERATOR_CANDIDATES } = await import('@/lib/fal/models');
 
 const SID = '55555555-5555-4555-8555-555555555555';
 const OTHER = '66666666-6666-4666-8666-666666666666';
@@ -145,9 +145,11 @@ describe('POST /api/jobs', () => {
     expect(job.flags).toEqual({ crossGender: false, crossAge: false, multiPerson: false, subjectLabel: 'the person in the centre' });
 
     const rows = await testDb.select().from(candidates).where(eq(candidates.jobId, job.id));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ status: 'pending', kind: 'generation', attempt: 1, model: GENERATOR_BY_CASE.case1 });
-    expect(rows[0].falRequestId).toBeTruthy();
+    expect(rows.map((c) => c.model).sort()).toEqual([...GENERATOR_CANDIDATES].sort());
+    for (const row of rows) {
+      expect(row).toMatchObject({ status: 'pending', kind: 'generation', attempt: 1 });
+      expect(row.falRequestId).toBeTruthy();
+    }
 
     const { input, webhookUrl } = submitSpy.fn!.mock.calls[0][0];
     expect(input.image_urls).toEqual(['https://example.test/t.jpg', 'https://example.test/u1.jpg', 'https://example.test/u0.jpg']);
@@ -165,8 +167,6 @@ describe('POST /api/jobs', () => {
     const [job] = await testDb.select().from(jobs).where(eq(jobs.id, data.jobId));
     expect(job.flags.crossGender).toBe(true);
     expect(job.prompt).toContain("Do not transfer the original subject's body");
-    const rows = await testDb.select().from(candidates).where(eq(candidates.jobId, job.id));
-    expect(rows.map((c) => c.model)).toEqual([GENERATOR_BY_CASE.case2_f2m]);
   });
 
   it('fails the job with the submit error when every candidate is refused', async () => {
