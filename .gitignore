@@ -36,3 +36,5 @@ next-env.d.ts
 # bake-off inputs contain real faces; only the example is committed
 /bakeoff/pairs.json
 /bakeoff/images
+/bakeoff/video-pairs.json
+/bakeoff/videos

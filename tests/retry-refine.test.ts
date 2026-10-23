@@ -378,8 +378,8 @@ describe('daily units and ownership', () => {
 });
 
 describe('server/jobs/actions.ts', () => {
-  it('exports only chooseCandidate, retryJob and refineCandidate, each calling requireSession()', () => {
-    expect(Object.keys(actions).sort()).toEqual(['chooseCandidate', 'refineCandidate', 'retryJob']);
+  it('exports only chooseCandidate, retryJob, refineCandidate and animateCandidate, each calling requireSession()', () => {
+    expect(Object.keys(actions).sort()).toEqual(['animateCandidate', 'chooseCandidate', 'refineCandidate', 'retryJob']);
     const source = readFileSync(path.join(process.cwd(), 'server', 'jobs', 'actions.ts'), 'utf8');
     for (const name of Object.keys(actions)) {
       const body = source.slice(source.indexOf(`export async function ${name}(`)).split(/\nexport /)[0];

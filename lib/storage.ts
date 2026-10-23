@@ -22,6 +22,12 @@ export function rawPathnamePattern(sid: string): RegExp {
   return new RegExp(`^sessions/${escaped}/raw/[a-f0-9-]{36}\\.(jpe?g|png|webp|heic|heif)$`);
 }
 
+/** Pathname the browser may upload a raw template clip to: `sessions/<sid>/raw/<uuid>.<ext>`. */
+export function rawVideoPathnamePattern(sid: string): RegExp {
+  const escaped = sid.replace(/[^a-f0-9-]/gi, '');
+  return new RegExp(`^sessions/${escaped}/raw/[a-f0-9-]{36}\\.(mp4|mov|webm|m4v)$`);
+}
+
 /** `<storeId>.public.blob.vercel-storage.com` from a `vercel_blob_rw_<storeId>_<secret>` token. */
 function blobHost(): string | null {
   const storeId = env.BLOB_READ_WRITE_TOKEN?.split('_')[3];
@@ -81,8 +87,9 @@ export async function putObject(
 /**
  * Reads an object into memory. Local URLs are read from disk, never over HTTP: the request would
  * have no session cookie and middleware would reject it. Other URLs (Blob, provider results) are fetched.
+ * `maxBytes` raises the cap for videos (MAX_RESULT_VIDEO_BYTES).
  */
-export async function fetchObject(url: string): Promise<Buffer> {
+export async function fetchObject(url: string, { maxBytes = MAX_FETCH_BYTES }: { maxBytes?: number } = {}): Promise<Buffer> {
   const parsed = parseUrl(url);
   if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
     throw new AppError('UPLOAD_NOT_FOUND', { detail: 'fetchObject: not an http(s) URL' });
@@ -102,11 +109,11 @@ export async function fetchObject(url: string): Promise<Buffer> {
   const res = await fetch(parsed, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'error' });
   if (res.status === 404) throw new AppError('UPLOAD_NOT_FOUND', { detail: 'fetchObject: 404' });
   if (!res.ok) throw new Error(`fetchObject: HTTP ${res.status} from ${parsed.hostname}`);
-  if (Number(res.headers.get('content-length') ?? 0) > MAX_FETCH_BYTES) {
+  if (Number(res.headers.get('content-length') ?? 0) > maxBytes) {
     throw new AppError('FILE_TOO_LARGE', { detail: 'fetchObject: content-length over limit' });
   }
   const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.length > MAX_FETCH_BYTES) throw new AppError('FILE_TOO_LARGE', { detail: 'fetchObject: body over limit' });
+  if (bytes.length > maxBytes) throw new AppError('FILE_TOO_LARGE', { detail: 'fetchObject: body over limit' });
   return bytes;
 }
 

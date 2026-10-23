@@ -32,9 +32,12 @@ export function toUploadView(upload: Upload): UploadView {
   return {
     id: upload.id,
     kind: upload.kind,
+    mediaType: upload.mediaType,
     status: upload.status,
     rejectCode: upload.rejectCode,
     url: upload.url,
+    videoUrl: upload.videoUrl,
+    durationMs: upload.durationMs,
     width: upload.width,
     height: upload.height,
     faceCount: upload.faces.filter((face) => face.score >= FACE_MIN_SCORE).length,

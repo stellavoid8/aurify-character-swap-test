@@ -22,12 +22,12 @@ async function fetchView(jobId: string): Promise<JobView> {
 }
 
 /** What the screen does after Try again or Fix the face has started a round. */
-export type RoundStarted = (stage: Extract<JobStage, 'generating' | 'refining'>) => Promise<void>;
+export type RoundStarted = (stage: Extract<JobStage, 'generating' | 'refining' | 'animating'>) => Promise<void>;
 
 /**
  * Step 3. Polls the job view while the picture is being made (paused while the tab is hidden,
- * refreshed as soon as it is shown again), then shows the result or the error. A Fix the face
- * round stays on the result screen, which shows its own progress over the picture.
+ * refreshed as soon as it is shown again), then shows the result or the error. A Fix the face or
+ * animation round stays on the result screen, which shows its own progress over the picture.
  */
 export function JobScreen({ initial }: { initial: JobView }) {
   const [view, setView] = useState(initial);
@@ -120,7 +120,7 @@ export function JobScreen({ initial }: { initial: JobView }) {
   );
 
   let screen: ReactNode;
-  if (active && view.stage !== 'refining') {
+  if (active && view.stage !== 'refining' && view.stage !== 'animating') {
     screen = (
       <div className="mx-auto flex w-full max-w-md flex-col gap-6">
         {lostNotice}
@@ -128,7 +128,7 @@ export function JobScreen({ initial }: { initial: JobView }) {
       </div>
     );
   } else if (active || view.status === 'succeeded') {
-    // One element for refining and succeeded, so the result screen keeps its state across the round.
+    // One element for refining, animating and succeeded, so the result screen keeps its state across the round.
     screen = <ResultView view={view} onRoundStarted={onRoundStarted} onRetry={retry} retrying={retrying} notice={lostNotice} />;
   } else {
     screen = (

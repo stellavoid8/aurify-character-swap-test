@@ -1,6 +1,6 @@
 'use client';
 
-import { Download, ImageOff, RefreshCw, ScanFace } from 'lucide-react';
+import { Clapperboard, Download, ImageOff, RefreshCw, ScanFace } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -16,7 +16,7 @@ import { ERRORS } from '@/lib/errors';
 import { skipOptimizer } from '@/lib/image-src';
 import { MAX_ROUNDS_PER_JOB } from '@/lib/limits';
 import type { CandidateView, FaceBox, JobView } from '@/lib/types';
-import { chooseCandidate, refineCandidate } from '@/server/jobs/actions';
+import { animateCandidate, chooseCandidate, refineCandidate } from '@/server/jobs/actions';
 import { CandidateStrip, stripOrder } from './CandidateStrip';
 import { likenessPct, versionLabel } from './labels';
 import { CompareSlider } from './CompareSlider';
@@ -26,6 +26,8 @@ import { StartOverLink } from './StartOverLink';
 import { SubjectNotice } from './SubjectNotice';
 
 const IMAGE = 'block h-auto w-full max-h-[70vh] rounded-md bg-surface-2 object-contain md:max-h-[calc(100dvh-17rem)]';
+/** Whole minutes for a wait, at least one. */
+const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
 /** Stand-in pixel size for stored photos: `next/image` needs one, and `h-auto` lets the real aspect ratio win once loaded. */
 const UNKNOWN_SIZE = 1024;
 const BOX_STROKES = [
@@ -36,6 +38,8 @@ const BOX_STROKES = [
 type CompareCellProps = {
   caption: string;
   url: string | null;
+  /** Plays this video instead, with `url` as its poster. */
+  videoUrl?: string | null;
   alt: string;
   className?: string;
   /** Template only: the swapped person, outlined. Needs the image's pixel size to line up. */
@@ -47,11 +51,27 @@ type CompareCellProps = {
   priority?: boolean;
 };
 
-function CompareCell({ caption, url, alt, className, box, overlay, sizes, priority }: CompareCellProps) {
+function CompareCell({ caption, url, videoUrl, alt, className, box, overlay, sizes, priority }: CompareCellProps) {
   return (
     <Card as="figure" className={cn('flex min-w-0 flex-col gap-2', className)}>
       <figcaption className="text-caption text-ink-muted">{caption}</figcaption>
-      {url ? (
+      {videoUrl ? (
+        <div className="relative">
+          <video
+            key={videoUrl}
+            src={videoUrl}
+            poster={url ?? undefined}
+            aria-label={alt}
+            muted
+            loop
+            autoPlay
+            playsInline
+            controls
+            className={IMAGE}
+          />
+          {overlay}
+        </div>
+      ) : url ? (
         <div className="relative">
           <Image
             src={url}
@@ -171,7 +191,7 @@ function RefinementPanel({ before, after, onKeepFixed, onKeepOriginal, inline }:
 
 type ResultViewProps = {
   view: JobView;
-  /** Called once Try again or Fix the face has started a round. */
+  /** Called once Try again, Fix the face or Animate this one has started a round. */
   onRoundStarted: RoundStarted;
   onRetry: () => void;
   retrying: boolean;
@@ -179,7 +199,10 @@ type ResultViewProps = {
   notice?: ReactNode;
 };
 
-/** Step 3 once the job succeeded: the comparison, Download and Share, the other versions, Try again and Fix the face. */
+/**
+ * Step 3 once the job succeeded: the comparison, Download and Share, the other versions, Try again and
+ * Fix the face. A video job also shows its video, and Animate this one for any other still.
+ */
 export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: ResultViewProps) {
   const items = stripOrder(view.candidates);
   const [chosenId, setChosenId] = useState(() => defaultChoice(view, items));
@@ -219,6 +242,7 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
   }
 
   const refining = view.status === 'running' && view.stage === 'refining';
+  const animating = view.status === 'running' && view.stage === 'animating';
   const [starting, setStarting] = useState(false);
   const [panelId, setPanelId] = useState<string | null>(null);
   const isDesktop = useIsDesktop();
@@ -236,6 +260,25 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
     if (refined?.status === 'succeeded' && refined.imageUrl) setPanelId(refined.id);
     else toast.error(ERRORS.REFINEMENT_FAILED.message);
   }, [view]);
+
+  // When an animation round ends: the server has made the video the chosen version, or added the notice.
+  const lastAnimating = useRef(view.stage === 'animating');
+  useEffect(() => {
+    const was = lastAnimating.current;
+    lastAnimating.current = view.stage === 'animating';
+    if (!was || view.stage === 'animating') return;
+    const video = view.candidates.find((c) => c.kind === 'animation' && c.round === view.round);
+    if (video?.status === 'succeeded' && video.videoUrl) toast.success('Your video is ready.');
+    else toast.error(ERRORS.ANIMATION_FAILED.message);
+  }, [view]);
+
+  async function animate(candidateId: string) {
+    setStarting(true);
+    const result = await animateCandidate({ jobId: view.id, candidateId }).catch(() => null);
+    if (result?.ok) await onRoundStarted('animating');
+    else toast.error(result?.error.message ?? ERRORS.INTERNAL_ERROR.message);
+    setStarting(false);
+  }
 
   async function fixFace(candidateId: string) {
     setStarting(true);
@@ -266,8 +309,10 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
   const multiPerson = template.peopleCount !== null && template.peopleCount > 1;
   const userPhoto = view.userPhotos.find((p) => p.isReference) ?? view.userPhotos[0];
   const notices = view.notices.filter((n) => !(multiPerson && n.code === 'TEMPLATE_MULTIPLE_PEOPLE'));
+  const isVideo = chosen.kind === 'animation' && !!chosen.videoUrl;
   const downloadUrl = `/api/jobs/${view.id}/download?candidate=${chosen.id}`;
-  const filename = `character-swap-${view.id.slice(0, 8)}-${chosen.rank ?? 1}.jpg`;
+  const filename = `character-swap-${view.id.slice(0, 8)}-${isVideo ? 'video' : (chosen.rank ?? 1)}.${isVideo ? 'mp4' : 'jpg'}`;
+  const clipMinutes = minutes(view.etaMs);
 
   const refined = panelId ? view.candidates.find((c) => c.id === panelId) : undefined;
   const parent = refined && view.candidates.find((c) => c.id === refined.parentCandidateId);
@@ -287,13 +332,16 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
   const inlinePanel = panel !== null && isDesktop;
 
   const roundsUsed = view.round >= MAX_ROUNDS_PER_JOB;
-  const busy = refining || starting || retrying;
+  const busy = refining || animating || starting || retrying;
+  const videoJob = view.mode === 'video';
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <div className="flex flex-col items-center gap-4 md:flex-row md:justify-between">
         <StepIndicator current={3} />
-        <h1 className="text-center font-display text-title md:order-first md:text-left">Here&apos;s your picture</h1>
+        <h1 className="text-center font-display text-title md:order-first md:text-left">
+          {isVideo ? "Here's your video" : "Here's your picture"}
+        </h1>
       </div>
       {notice}
 
@@ -305,17 +353,23 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
             <CompareCell
               caption={`Result · ${versionLabel(chosen)} · likeness ${likenessPct(chosen.identityScore)}`}
               url={chosen.imageUrl}
-              alt={`Your result, version ${chosenIndex + 1}`}
+              videoUrl={isVideo ? chosen.videoUrl : null}
+              alt={`Your result${isVideo ? ' video' : ''}, version ${chosenIndex + 1}`}
               className="col-span-2 md:order-last md:col-span-1 md:ring-2 md:ring-accent"
               sizes="(min-width: 768px) 480px, 100vw"
               priority
               overlay={
-                refining && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/80">
+                (refining || animating) && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/80 p-4 text-center">
                     <Spinner size="lg" className="text-accent" />
                     <p role="status" className="text-body font-semibold">
-                      Fixing the face…
+                      {refining ? 'Fixing the face…' : 'Making your video…'}
                     </p>
+                    {animating && (
+                      <p className="text-small text-ink-muted">
+                        Usually about {clipMinutes} min. You can leave this page open.
+                      </p>
+                    )}
                   </div>
                 )
               }
@@ -327,7 +381,8 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
                 <CompareCell
                   caption="Template"
                   url={template.url}
-                  alt="Template photo"
+                  videoUrl={videoJob ? template.videoUrl : null}
+                  alt={videoJob ? 'Template clip' : 'Template photo'}
                   sizes="(min-width: 768px) 320px, 50vw"
                   box={
                     multiPerson && template.subjectBox && template.width > 0 && template.height > 0
@@ -355,14 +410,19 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
               <Download aria-hidden className="size-4" />
               Download
             </a>
-            <ShareButton downloadUrl={downloadUrl} imageUrl={chosen.imageUrl} filename={filename} />
+            <ShareButton
+              downloadUrl={downloadUrl}
+              imageUrl={isVideo ? chosen.videoUrl! : chosen.imageUrl}
+              filename={filename}
+              contentType={isVideo ? 'video/mp4' : 'image/jpeg'}
+            />
           </div>
 
           <section aria-labelledby="not-quite-right" className="flex flex-col gap-3 rounded-lg border border-line bg-surface/60 p-4 backdrop-blur-md md:p-5">
             <h2 id="not-quite-right" ref={sectionHeading} tabIndex={-1} className="text-heading focus:outline-none">
               Not quite right?
             </h2>
-            {roundsUsed && !refining ? (
+            {roundsUsed && !refining && !animating ? (
               <>
                 <p className="text-small text-ink-muted">
                   You&apos;ve made as many versions of this picture as we allow. Start a new picture to keep going.
@@ -371,14 +431,16 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
                   <StartOverLink />
                 </div>
               </>
-            ) : view.unitsLeftToday === 0 && !refining ? (
+            ) : view.unitsLeftToday === 0 && !refining && !animating ? (
               <Notice tone="warning" title={ERRORS.RATE_LIMITED_SESSION.message}>
                 {ERRORS.RATE_LIMITED_SESSION.nextStep}
               </Notice>
             ) : (
               <>
                 <p className="text-small text-ink-muted">
-                  Try again makes a new version. Fix the face sharpens your likeness on this one.
+                  {videoJob
+                    ? 'Try again makes new stills and a new video. Fix the face sharpens a still. Animate this one makes a video of the still you picked.'
+                    : 'Try again makes a new version. Fix the face sharpens your likeness on this one.'}
                 </p>
                 <div className="flex flex-col gap-3 md:flex-row lg:flex-wrap">
                   <Button variant="secondary" size="lg" onClick={onRetry} loading={retrying} disabled={busy || !view.canRetry}>
@@ -396,6 +458,18 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
                     {!(starting || refining) && <ScanFace aria-hidden className="size-4" />}
                     Fix the face
                   </Button>
+                  {videoJob && (
+                    <Button
+                      variant="secondary"
+                      size="lg"
+                      onClick={() => void animate(chosen.id)}
+                      loading={animating}
+                      disabled={busy || !view.canAnimate || chosen.kind === 'animation'}
+                    >
+                      {!animating && <Clapperboard aria-hidden className="size-4" />}
+                      Animate this one
+                    </Button>
+                  )}
                 </div>
               </>
             )}
