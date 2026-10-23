@@ -5,18 +5,18 @@ import { db } from '@/lib/db';
 import { candidates, jobRounds, uploads, type Job } from '@/lib/db/schema';
 import { ERRORS, formatNotice, isErrorCode } from '@/lib/errors';
 import { generatorLabel } from '@/lib/fal/models';
-import { MAX_ROUNDS_PER_JOB } from '@/lib/limits';
+import { ANIMATION_ROUND_UNITS, MAX_ROUNDS_PER_JOB } from '@/lib/limits';
 import { enforceTimeout } from '@/lib/pipeline/timeout';
 import { unitsLeftToday } from '@/lib/rate-limit';
 import type { JobView } from '@/lib/types';
-import { getEtaMs } from '@/server/stats/queries';
+import { getAnimationMsPerSecond, getEtaMs } from '@/server/stats/queries';
 import { getJobForSession } from './queries';
 
 /** The one job view, for the page's first render and for polling. Times the job out first if it is past its deadline. */
 export async function getJobView(sid: string, jobId: string): Promise<JobView> {
   const job = await enforceTimeout(await getJobForSession(sid, jobId));
 
-  const [rounds, photos, rows, etaMs, unitsLeft] = await Promise.all([
+  const [rounds, photos, rows, etaMs, unitsLeft, animationMsPerSecond] = await Promise.all([
     db.select().from(jobRounds).where(and(eq(jobRounds.jobId, job.id), eq(jobRounds.round, job.currentRound))),
     db
       .select()
@@ -30,6 +30,7 @@ export async function getJobView(sid: string, jobId: string): Promise<JobView> {
       .orderBy(asc(jobRounds.round), sql`${candidates.rank} asc nulls last`, asc(candidates.submittedAt), asc(candidates.id)),
     getEtaMs(),
     unitsLeftToday(sid),
+    job.mode === 'video' ? getAnimationMsPerSecond() : 0,
   ]);
   const round = rounds[0];
   const byId = new Map(photos.map((p) => [p.id, p]));
@@ -39,18 +40,24 @@ export async function getJobView(sid: string, jobId: string): Promise<JobView> {
 
   const finished = job.status === 'succeeded' || job.status === 'failed' || job.status === 'timed_out';
   const roundsLeft = job.currentRound < MAX_ROUNDS_PER_JOB && unitsLeft > 0;
+  const chosen = rows.find(({ candidate }) => candidate.id === job.chosenCandidateId)?.candidate;
+  const clipSeconds = (template?.durationMs ?? 0) / 1000;
 
   return {
     id: job.id,
+    mode: job.mode,
     status: job.status,
     stage: job.stage,
     round: job.currentRound,
     elapsedMs: round ? Math.max(0, (round.finishedAt ?? new Date()).getTime() - round.startedAt.getTime()) : 0,
-    etaMs,
+    // The waiting estimate for the stage in progress: a video scales with its clip's length.
+    etaMs: job.stage === 'animating' ? Math.round(animationMsPerSecond * clipSeconds) : etaMs,
     deadlineAt: job.deadlineAt?.toISOString() ?? null,
     error: viewError(job),
     template: {
       url: template?.url ?? null,
+      videoUrl: template?.videoUrl ?? null,
+      durationMs: template?.durationMs ?? null,
       width: template?.width ?? 0,
       height: template?.height ?? 0,
       subjectBox: subject?.box ?? null,
@@ -70,6 +77,7 @@ export async function getJobView(sid: string, jobId: string): Promise<JobView> {
       modelLabel: generatorLabel(c.model),
       status: c.status,
       imageUrl: c.imageUrl,
+      videoUrl: c.videoUrl,
       identityScore: c.identityScore,
       actionScore: c.actionScore,
       rank: c.rank,
@@ -77,7 +85,9 @@ export async function getJobView(sid: string, jobId: string): Promise<JobView> {
     })),
     chosenCandidateId: job.chosenCandidateId,
     canRetry: finished && roundsLeft,
-    canRefine: job.status === 'succeeded' && job.chosenCandidateId !== null && roundsLeft,
+    canRefine: job.status === 'succeeded' && chosen !== undefined && chosen.kind !== 'animation' && roundsLeft,
+    canAnimate:
+      job.mode === 'video' && job.status === 'succeeded' && job.currentRound < MAX_ROUNDS_PER_JOB && unitsLeft >= ANIMATION_ROUND_UNITS,
     unitsLeftToday: unitsLeft,
   };
 }

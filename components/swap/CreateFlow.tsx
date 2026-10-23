@@ -15,7 +15,7 @@ const urlStep = (): 1 | 2 => (new URLSearchParams(window.location.search).get(ST
  * Steps 1–2 of the create flow, driven by the draft store. Step 2 is pushed as `?step=2`, so the
  * browser back button returns to step 1. The draft isn't persisted, so a reload always starts at step 1.
  */
-export function CreateFlow({ sid }: { sid: string }) {
+export function CreateFlow({ sid, videoEnabled }: { sid: string; videoEnabled: boolean }) {
   const step = useSwapFlow((s) => s.step);
   const setStep = useSwapFlow((s) => s.setStep);
 
@@ -46,7 +46,7 @@ export function CreateFlow({ sid }: { sid: string }) {
     <div className="flex flex-col gap-5 md:gap-6">
       <StepIndicator current={step} />
       {step === 1 ? (
-        <TemplateStep sid={sid} onNext={goToPhotos} />
+        <TemplateStep sid={sid} videoEnabled={videoEnabled} onNext={goToPhotos} />
       ) : (
         <PhotosStep sid={sid} onBack={() => window.history.back()} />
       )}

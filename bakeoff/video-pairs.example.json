@@ -1,0 +1,15 @@
+[
+  {
+    "id": "pier-jump-15s",
+    "note": "15 s clip, one person, fast motion: the length and drift test",
+    "clip": "videos/pier-jump-15s.mp4",
+    "selfie": "images/user-a-selfie.jpg",
+    "still": "images/pier-jump-still-user-a.jpg"
+  },
+  {
+    "id": "cafe-laugh-5s",
+    "note": "5 s clip, near-frontal face: the easy baseline",
+    "clip": "videos/cafe-laugh-5s.mp4",
+    "selfie": "images/user-a-selfie.jpg"
+  }
+]

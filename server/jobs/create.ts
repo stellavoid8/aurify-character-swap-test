@@ -2,10 +2,13 @@ import 'server-only';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, type Executor } from '@/lib/db';
-import { candidates, jobRounds, jobs, type Job } from '@/lib/db/schema';
+import { candidates, jobs, type Job } from '@/lib/db/schema';
+import { env } from '@/lib/env';
 import { AppError } from '@/lib/errors';
 import { REFINE_MODEL } from '@/lib/fal/models';
-import { JOB_TIMEOUT_MS, MAX_ROUNDS_PER_JOB, MAX_USER_PHOTOS } from '@/lib/limits';
+import { ANIMATION_ROUND_UNITS, ANIMATION_TIMEOUT_MS, JOB_TIMEOUT_MS, MAX_ROUNDS_PER_JOB, MAX_USER_PHOTOS } from '@/lib/limits';
+import { openAnimationRound } from '@/lib/pipeline/animate';
+import { startRound } from '@/lib/pipeline/rounds';
 import { checkUnits } from '@/lib/rate-limit';
 import { getUploadsForSession } from '@/server/uploads/queries';
 import { getCandidateForSession, getJobForSession } from './queries';
@@ -20,45 +23,10 @@ export const createJobSchema = z.object({
 });
 export type CreateJobInput = z.input<typeof createJobSchema>;
 
-/** The stage each round kind starts in. */
-const FIRST_STAGE = { generation: 'analyzing', refinement: 'refining' } as const;
-
-/**
- * Takes one rate-limit unit and opens the job's next round, inside the caller's transaction.
- * Shared by createJob, retryJob and refineCandidate. The first stage's start time is written with
- * the row, because telemetry helpers can't see it until the transaction commits.
- */
-export async function startRound(
-  tx: Executor,
-  { jobId, sid, kind }: { jobId: string; sid: string; kind: 'generation' | 'refinement' },
-): Promise<{ roundId: string; round: number }> {
-  await checkUnits(sid, tx);
-  const [job] = await tx
-    .update(jobs)
-    .set({ currentRound: sql`${jobs.currentRound} + 1` })
-    .where(eq(jobs.id, jobId))
-    .returning({ round: jobs.currentRound });
-  if (!job) throw new AppError('JOB_NOT_FOUND', { detail: 'startRound: job missing' });
-
-  const stage = FIRST_STAGE[kind];
-  const [row] = await tx
-    .insert(jobRounds)
-    .values({
-      jobId,
-      sessionId: sid,
-      round: job.round,
-      kind,
-      status: 'running',
-      stageTimings: sql`jsonb_build_object(${stage}::text, jsonb_build_object(
-        'startedAt', to_jsonb(clock_timestamp()), 'endedAt', null, 'ms', null))`,
-    })
-    .returning({ id: jobRounds.id });
-  return { roundId: row.id, round: job.round };
-}
-
 /**
  * Validates the photos and opens round 1. Fast by design (no provider calls): the caller schedules
- * `runGenerationRound` in after() with the returned ids.
+ * `runGenerationRound` in after() with the returned ids. A clip template makes a video job, which
+ * needs the units for its stills and its animation round up front.
  */
 export async function createJob(sid: string, input: unknown): Promise<{ jobId: string; roundId: string }> {
   const { templateUploadId, userUploadIds } = createJobSchema.parse(input);
@@ -71,12 +39,17 @@ export async function createJob(sid: string, input: unknown): Promise<{ jobId: s
   if (photos.some((p) => p.kind !== 'user' || p.status !== 'ok' || !p.url)) {
     throw new AppError('VALIDATION_FAILED', { detail: 'user photo not usable' });
   }
+  const mode = template.mediaType === 'video' ? 'video' : 'photo';
+  if (mode === 'video' && !env.VIDEO_ENABLED) throw new AppError('VIDEO_UNAVAILABLE');
+  if (mode === 'video' && !template.videoUrl) throw new AppError('VALIDATION_FAILED', { detail: 'clip template has no video' });
 
   return db.transaction(async (tx) => {
+    if (mode === 'video') await checkUnits(sid, tx, 1 + ANIMATION_ROUND_UNITS);
     const [job] = await tx
       .insert(jobs)
       .values({
         sessionId: sid,
+        mode,
         status: 'running',
         stage: 'analyzing',
         templateUploadId,
@@ -92,27 +65,28 @@ export async function createJob(sid: string, input: unknown): Promise<{ jobId: s
 const FINISHED = ['succeeded', 'failed', 'timed_out'] as const satisfies Job['status'][];
 const isFinished = (job: Job) => (FINISHED as readonly string[]).includes(job.status);
 
-/** The notice of a failed Fix the face describes that round only; the next round drops it. */
-const withoutRefinementNotice = sql`coalesce(
-  (select jsonb_agg(n) from jsonb_array_elements(${jobs.notices}) n where n ->> 'code' <> 'REFINEMENT_FAILED'),
+/** The notice of a failed Fix the face or animation describes that round only; the next round drops it. */
+const withoutRoundNotices = sql`coalesce(
+  (select jsonb_agg(n) from jsonb_array_elements(${jobs.notices}) n
+    where n ->> 'code' not in ('REFINEMENT_FAILED', 'ANIMATION_FAILED')),
   '[]'::jsonb)`;
 
 /**
- * Puts a finished job back to `running` for its next round, with a fresh deadline, inside the
+ * Puts a finished job back to `running` for its next round, with a fresh deadline (`timeoutMs`), inside the
  * caller's transaction. Conditional on the job still being finished and under MAX_ROUNDS_PER_JOB,
  * so of two concurrent Try again / Fix the face requests only one opens a round.
  */
-async function reopenJob(tx: Executor, job: Job, stage: Job['stage']): Promise<void> {
+async function reopenJob(tx: Executor, job: Job, stage: Job['stage'], timeoutMs = JOB_TIMEOUT_MS): Promise<void> {
   const rows = await tx
     .update(jobs)
     .set({
       status: 'running',
       stage,
-      deadlineAt: sql`now() + make_interval(secs => ${JOB_TIMEOUT_MS / 1000})`,
+      deadlineAt: sql`now() + make_interval(secs => ${timeoutMs / 1000})`,
       errorCode: null,
       errorMessage: null,
       finishedAt: null,
-      notices: withoutRefinementNotice,
+      notices: withoutRoundNotices,
     })
     .where(
       and(
@@ -157,6 +131,7 @@ export async function startRefinement(
   const parent = await getCandidateForSession(sid, candidateId);
   if (parent.jobId !== job.id) throw new AppError('JOB_NOT_FOUND', { detail: 'candidate of another job' });
   if (parent.status !== 'succeeded' || !parent.imageUrl) throw new AppError('INVALID_STATE', { detail: 'candidate not succeeded' });
+  if (parent.kind === 'animation') throw new AppError('INVALID_STATE', { detail: 'Fix the face works on stills only' });
   assertReopenable(job);
 
   return db.transaction(async (tx) => {
@@ -177,5 +152,28 @@ export async function startRefinement(
       })
       .returning({ id: candidates.id });
     return { roundId, round, candidateId: candidate.id };
+  });
+}
+
+/**
+ * Animate this one: opens an animation round of a finished still of a video job. The caller
+ * schedules `runAnimationRound`.
+ */
+export async function startAnimation(
+  sid: string,
+  { jobId, candidateId }: { jobId: string; candidateId: string },
+): Promise<{ roundId: string; round: number; candidateId: string }> {
+  const job = await getJobForSession(sid, jobId);
+  const parent = await getCandidateForSession(sid, candidateId);
+  if (parent.jobId !== job.id) throw new AppError('JOB_NOT_FOUND', { detail: 'candidate of another job' });
+  if (job.mode !== 'video') throw new AppError('INVALID_STATE', { detail: 'not a video job' });
+  if (!env.VIDEO_ENABLED) throw new AppError('VIDEO_UNAVAILABLE');
+  if (parent.status !== 'succeeded' || !parent.imageUrl) throw new AppError('INVALID_STATE', { detail: 'candidate not succeeded' });
+  if (parent.kind === 'animation') throw new AppError('INVALID_STATE', { detail: 'animate a still, not a video' });
+  assertReopenable(job);
+
+  return db.transaction(async (tx) => {
+    await reopenJob(tx, job, 'animating', ANIMATION_TIMEOUT_MS);
+    return openAnimationRound(tx, { jobId: job.id, sid, parent });
   });
 }

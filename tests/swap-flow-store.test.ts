@@ -13,9 +13,12 @@ function view(qualityScore: number | null): UploadView {
   return {
     id: `upload-${qualityScore}`,
     kind: 'user',
+    mediaType: 'image',
     status: 'ok',
     rejectCode: null,
     url: 'https://example.test/photo.jpg',
+    videoUrl: null,
+    durationMs: null,
     width: 1000,
     height: 1000,
     faceCount: 1,

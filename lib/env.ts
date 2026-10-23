@@ -55,6 +55,10 @@ const schema = z.object({
   GLOBAL_DAILY_UNITS: wholeNumber(150),
   RETENTION_DAYS: wholeNumber(10),
   FACE_ENGINE: z.enum(['auto', 'onnx', 'mock'], { error: 'must be one of auto, onnx, mock' }).default('auto'),
+  VIDEO_ENABLED: z
+    .enum(['true', 'false'], { error: 'must be true or false' })
+    .default('false')
+    .transform((value) => value === 'true'),
   MOCK_FAL_FAILURE_MODE: z
     .enum(['none', 'once', 'always'], { error: 'must be one of none, once, always' })
     .default('none'),

@@ -4,14 +4,15 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { z } from 'zod';
 import { db } from '../db';
-import { candidates, jobRounds, jobs, webhookEvents, type Candidate } from '../db/schema';
+import { candidates, jobRounds, jobs, uploads, webhookEvents, type Candidate } from '../db/schema';
 import { isContentPolicyError } from '../fal/client';
-import { parseOutput, type FalModel } from '../fal/models';
-import { falCostMicros } from '../fal/pricing';
-import { MAX_AUTO_RETRIES } from '../limits';
+import { parseOutput, parseVideoOutput, type FalModel } from '../fal/models';
+import { falCostMicros, falVideoCostMicros } from '../fal/pricing';
+import { ANIMATION_RESOLUTION, MAX_AUTO_RETRIES, MAX_RESULT_VIDEO_BYTES } from '../limits';
 import { fetchObject, putObject } from '../storage';
 import { markStageEnd, markStageStart, recordCall } from '../telemetry';
 import type { ErrorCode, JobNotice } from '../types';
+import { settleAnimation, submitAnimation } from './animate';
 import { generationInputFor, submitCandidate } from './generate';
 import { failJob, onRoundGenerated } from './orchestrator';
 import { settleRefinement, submitRefinement } from './refine';
@@ -19,8 +20,9 @@ import { settleRefinement, submitRefinement } from './refine';
 /**
  * Receives fal's completion callbacks (after the route has verified the token and deduplicated the
  * event): copies results into our storage, retries a provider error once with a new seed, and fans
- * the round's candidates in so that exactly one callback moves the job on. A refinement candidate
- * is its round's only one, so its events go to `settleRefinement` instead of ranking.
+ * the round's candidates in so that exactly one callback moves the job on. A refinement or animation
+ * candidate is its round's only one, so its events go to `settleRefinement` / `settleAnimation`
+ * instead of ranking.
  *
  * Every candidate write is conditional on `(id, attempt, status = 'pending')`, so a stale or
  * repeated callback can never overwrite a finished candidate or a newer attempt.
@@ -41,7 +43,8 @@ const SEED_MAX = 2 ** 31 - 1;
 const LATE_NOTICE: JobNotice = { code: 'LATE_RESULTS_ADDED' };
 
 /** The provider_calls stage of a candidate's fal request. */
-const stageOf = (candidate: Candidate) => (candidate.kind === 'refinement' ? 'refining' : 'generating');
+const STAGE_OF_KIND = { generation: 'generating', refinement: 'refining', animation: 'animating' } as const;
+const stageOf = (candidate: Candidate) => STAGE_OF_KIND[candidate.kind];
 
 export async function handleFalWebhook({ cid, attempt, body }: { cid: string; attempt: number; body: FalWebhookBody }): Promise<void> {
   let candidate: Candidate | null;
@@ -62,6 +65,10 @@ export async function handleFalWebhook({ cid, attempt, body }: { cid: string; at
     await settleRefinement(candidate.id).catch((err) => console.error('[fan-in] refinement fan-in failed', { roundId, err }));
     return;
   }
+  if (candidate.kind === 'animation') {
+    await settleAnimation(candidate.id).catch((err) => console.error('[fan-in] animation fan-in failed', { roundId, err }));
+    return;
+  }
   await maybeFinishRound(roundId).catch((err) => console.error('[fan-in] round fan-in failed', { roundId, err }));
 }
 
@@ -80,7 +87,7 @@ async function applyEvent(cid: string, attempt: number, body: FalWebhookBody): P
   }
 
   if (body.status === 'OK') {
-    const stored = await storeResult(candidate, body.payload);
+    const stored = candidate.kind === 'animation' ? await storeVideoResult(candidate, body.payload) : await storeResult(candidate, body.payload);
     if (stored.ok) {
       await completeCandidate(candidate, body.request_id, stored.url);
       return candidate;
@@ -108,14 +115,43 @@ async function storeResult(candidate: Candidate, payload: unknown): Promise<{ ok
   }
 }
 
-/** Marks the attempt succeeded with our copy of the image. A finished job keeps its status but gets a notice. */
-export async function completeCandidate(candidate: Candidate, requestId: string, imageUrl: string): Promise<boolean> {
-  const model = candidate.model as FalModel;
+/** Copies fal's output video into our storage as-is. Never throws. */
+async function storeVideoResult(candidate: Candidate, payload: unknown): Promise<{ ok: true; url: string } | { ok: false; reason: string }> {
+  const { videoUrl } = parseVideoOutput(payload);
+  if (!videoUrl) return { ok: false, reason: 'no video in payload' };
+  try {
+    const bytes = await fetchObject(videoUrl, { maxBytes: MAX_RESULT_VIDEO_BYTES });
+    const { url } = await putObject(`results/${candidate.jobId}/${candidate.id}.mp4`, bytes, 'video/mp4');
+    return { ok: true, url };
+  } catch (err) {
+    console.error('[fan-in] video copy failed', { candidateId: candidate.id, err: err instanceof Error ? err.message : err });
+    return { ok: false, reason: 'result copy failed' };
+  }
+}
+
+/** What one successful attempt cost: per image, or for a video per 16 frames of the template clip. */
+async function costOf(candidate: Candidate): Promise<number> {
+  if (candidate.kind !== 'animation') return falCostMicros(candidate.model as FalModel, 1);
+  const [row] = await db
+    .select({ frames: uploads.frameCount })
+    .from(jobs)
+    .innerJoin(uploads, eq(uploads.id, jobs.templateUploadId))
+    .where(eq(jobs.id, candidate.jobId));
+  return falVideoCostMicros(row?.frames ?? 0, ANIMATION_RESOLUTION);
+}
+
+/**
+ * Marks the attempt succeeded with our copy of the result (the image, or for an animation the
+ * video). A finished job keeps its status but gets a notice.
+ */
+export async function completeCandidate(candidate: Candidate, requestId: string, resultUrl: string): Promise<boolean> {
+  const model = candidate.model;
   const latencyMs = Date.now() - candidate.submittedAt.getTime();
-  const costUsdMicros = falCostMicros(model, 1);
+  const costUsdMicros = await costOf(candidate);
+  const result = candidate.kind === 'animation' ? { videoUrl: resultUrl } : { imageUrl: resultUrl };
   const done = await db
     .update(candidates)
-    .set({ status: 'succeeded', imageUrl, falRequestId: requestId, latencyMs, costUsdMicros, completedAt: new Date() })
+    .set({ status: 'succeeded', ...result, falRequestId: requestId, latencyMs, costUsdMicros, completedAt: new Date() })
     .where(pendingAttempt(candidate))
     .returning({ id: candidates.id });
   if (done.length === 0) return false;
@@ -150,7 +186,7 @@ export async function completeCandidate(candidate: Candidate, requestId: string,
 /**
  * A failed attempt: content refusals are final; anything else is resubmitted with a new seed while
  * `attempt <= MAX_AUTO_RETRIES`, then the candidate fails with GENERATION_FAILED (REFINEMENT_FAILED
- * for a refinement).
+ * for a refinement, ANIMATION_FAILED for an animation).
  */
 async function failAttempt(candidate: Candidate, requestId: string, reason: string, payload?: unknown): Promise<void> {
   const text = `${reason} ${JSON.stringify(payload ?? '')}`;
@@ -171,7 +207,7 @@ async function failAttempt(candidate: Candidate, requestId: string, reason: stri
 
   if (blocked) return failCandidate(candidate, 'CONTENT_BLOCKED');
   const refinement = candidate.kind === 'refinement';
-  if (candidate.attempt > MAX_AUTO_RETRIES) return failCandidate(candidate, refinement ? 'REFINEMENT_FAILED' : 'GENERATION_FAILED');
+  if (candidate.attempt > MAX_AUTO_RETRIES) return failCandidate(candidate, FINAL_FAILURE[candidate.kind]);
 
   const [next] = await db
     .update(candidates)
@@ -181,6 +217,7 @@ async function failAttempt(candidate: Candidate, requestId: string, reason: stri
   if (!next) return;
   // Face swap takes no seed: its retry resubmits the same two photos.
   if (refinement) return submitRefinement(next);
+  if (candidate.kind === 'animation') return submitAnimation(next);
 
   try {
     await submitCandidate(next, await generationInputFor(next.jobId));
@@ -189,6 +226,12 @@ async function failAttempt(candidate: Candidate, requestId: string, reason: stri
     await failCandidate(next, 'GENERATION_FAILED');
   }
 }
+
+const FINAL_FAILURE = {
+  generation: 'GENERATION_FAILED',
+  refinement: 'REFINEMENT_FAILED',
+  animation: 'ANIMATION_FAILED',
+} as const satisfies Record<Candidate['kind'], ErrorCode>;
 
 async function failCandidate(candidate: Candidate, code: ErrorCode): Promise<void> {
   await db

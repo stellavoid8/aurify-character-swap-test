@@ -7,11 +7,12 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { jobs } from '@/lib/db/schema';
 import { AppError, toActionError } from '@/lib/errors';
+import { runAnimationRound } from '@/lib/pipeline/animate';
 import { runGenerationRound } from '@/lib/pipeline/generate';
 import { runRefinementRound } from '@/lib/pipeline/refine';
 import { requireSession } from '@/lib/session';
 import type { ActionResult } from '@/lib/types';
-import { startRefinement, startRetry } from './create';
+import { startAnimation, startRefinement, startRetry } from './create';
 import { getCandidateForSession, getJobForSession } from './queries';
 
 const chooseSchema = z.object({
@@ -20,6 +21,7 @@ const chooseSchema = z.object({
 });
 const retrySchema = z.object({ jobId: z.uuid() });
 const refineSchema = chooseSchema;
+const animateSchema = chooseSchema;
 
 /** Makes a finished version the one the result screen, Download and Share use. */
 export async function chooseCandidate(
@@ -71,6 +73,22 @@ export async function refineCandidate(
     const { jobId, candidateId: parentId } = refineSchema.parse(input);
     const { roundId, round, candidateId } = await startRefinement(sid, { jobId, candidateId: parentId });
     after(() => runRefinementRound({ jobId, roundId, candidateId }));
+    revalidatePath(`/jobs/${jobId}`);
+    return { ok: true, data: { round, candidateId } };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+/** Animate this one: a video of one finished still of a video job. Takes ANIMATION_ROUND_UNITS daily units. */
+export async function animateCandidate(
+  input: z.input<typeof animateSchema>,
+): Promise<ActionResult<{ round: number; candidateId: string }>> {
+  try {
+    const { sid } = await requireSession();
+    const { jobId, candidateId: parentId } = animateSchema.parse(input);
+    const { roundId, round, candidateId } = await startAnimation(sid, { jobId, candidateId: parentId });
+    after(() => runAnimationRound({ jobId, roundId, candidateId }));
     revalidatePath(`/jobs/${jobId}`);
     return { ok: true, data: { round, candidateId } };
   } catch (err) {

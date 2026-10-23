@@ -156,6 +156,7 @@ function userUpload(n: number, url: string, img: { jpeg: Buffer; width: number; 
     id: `photo-${n}`,
     sessionId: SESSION_ID,
     kind: 'user',
+    mediaType: 'image',
     status: 'ok',
     rejectCode: null,
     rawUrl: url,
@@ -168,6 +169,11 @@ function userUpload(n: number, url: string, img: { jpeg: Buffer; width: number; 
     qualityScore: qualityScore(face, img.width, img.height),
     embedding,
     createdAt: new Date(),
+    videoUrl: null,
+    durationMs: null,
+    fps: null,
+    frameCount: null,
+    keyframe: null,
     deletedAt: null,
   };
 }
