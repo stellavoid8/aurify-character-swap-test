@@ -60,6 +60,11 @@ vi.mock('@/lib/pipeline/analyze', async (orig) => {
   return { ...actual, analyzeJob };
 });
 
+vi.mock('@/lib/limits', async (orig) => ({
+  ...(await orig<typeof import('@/lib/limits')>()),
+  // Production makes one image per round; three exercise the fan-in of concurrent webhooks.
+  CANDIDATES_PER_ROUND: 3,
+}));
 vi.stubEnv('DATABASE_URL', 'postgres://localhost:5432/test');
 vi.stubEnv('APP_URL', 'http://localhost:3000');
 vi.stubEnv('SESSION_SECRET', 'test-secret');

@@ -133,7 +133,7 @@ function assertReopenable(job: Job): void {
 }
 
 /**
- * Try again: opens a generation round of CANDIDATES_PER_ROUND new versions. Earlier candidates
+ * Try again: opens a generation round of CANDIDATES_PER_ROUND new version(s). Earlier candidates
  * stay. The caller schedules `runGenerationRound`, which skips analysis when the job already has one.
  */
 export async function startRetry(sid: string, jobId: string): Promise<{ roundId: string; round: number }> {

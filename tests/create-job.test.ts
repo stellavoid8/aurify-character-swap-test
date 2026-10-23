@@ -49,6 +49,7 @@ vi.stubEnv('GLOBAL_DAILY_UNITS', '1000');
 const { POST } = await import('@/app/api/jobs/route');
 const { signSession, newSessionPayload } = await import('@/lib/session');
 const { AppError } = await import('@/lib/errors');
+const { GENERATOR_BY_CASE } = await import('@/lib/fal/models');
 
 const SID = '55555555-5555-4555-8555-555555555555';
 const OTHER = '66666666-6666-4666-8666-666666666666';
@@ -116,7 +117,7 @@ const post = (body: unknown) =>
   );
 
 describe('POST /api/jobs', () => {
-  it('returns 201 before analysis, then analyzes and submits 3 seeded candidates', async () => {
+  it('returns 201 before analysis, then analyzes and submits one candidate on the case-1 generator', async () => {
     const body = await seedUploads(SID);
     const started = performance.now();
     const res = await post(body);
@@ -144,10 +145,9 @@ describe('POST /api/jobs', () => {
     expect(job.flags).toEqual({ crossGender: false, crossAge: false, multiPerson: false, subjectLabel: 'the person in the centre' });
 
     const rows = await testDb.select().from(candidates).where(eq(candidates.jobId, job.id));
-    expect(rows).toHaveLength(3);
-    expect(new Set(rows.map((c) => c.seed)).size).toBe(3);
-    expect(new Set(rows.map((c) => c.falRequestId)).size).toBe(3);
-    expect(rows.every((c) => c.status === 'pending' && c.kind === 'generation' && c.attempt === 1)).toBe(true);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: 'pending', kind: 'generation', attempt: 1, model: GENERATOR_BY_CASE.case1 });
+    expect(rows[0].falRequestId).toBeTruthy();
 
     const { input, webhookUrl } = submitSpy.fn!.mock.calls[0][0];
     expect(input.image_urls).toEqual(['https://example.test/t.jpg', 'https://example.test/u1.jpg', 'https://example.test/u0.jpg']);
@@ -165,6 +165,8 @@ describe('POST /api/jobs', () => {
     const [job] = await testDb.select().from(jobs).where(eq(jobs.id, data.jobId));
     expect(job.flags.crossGender).toBe(true);
     expect(job.prompt).toContain("Do not transfer the original subject's body");
+    const rows = await testDb.select().from(candidates).where(eq(candidates.jobId, job.id));
+    expect(rows.map((c) => c.model)).toEqual([GENERATOR_BY_CASE.case2_f2m]);
   });
 
   it('fails the job with the submit error when every candidate is refused', async () => {
@@ -183,16 +185,6 @@ describe('POST /api/jobs', () => {
       submitSpy.fn!.mockReset();
       submitSpy.fn!.mockImplementation((await vi.importActual<typeof import('@/lib/fal/client')>('@/lib/fal/client')).submitToQueue);
     }
-  });
-
-  it('keeps the job running when only some submissions fail', async () => {
-    submitSpy.fn!.mockRejectedValueOnce(new AppError('GENERATION_FAILED'));
-    const { data } = await (await post(await seedUploads(SID))).json();
-    await drain();
-    const [job] = await testDb.select().from(jobs).where(eq(jobs.id, data.jobId));
-    expect(job).toMatchObject({ status: 'running', stage: 'generating' });
-    const rows = await testDb.select().from(candidates).where(eq(candidates.jobId, job.id));
-    expect(rows.filter((c) => c.status === 'failed')).toHaveLength(1);
   });
 
   it('returns 429 for the 21st round of the UTC day, while another session still works', async () => {

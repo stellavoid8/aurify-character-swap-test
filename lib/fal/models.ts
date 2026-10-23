@@ -2,6 +2,7 @@
  * fal model ids and the per-model input/output mapping. Model ids appear nowhere else in the app.
  * Endpoint ids and input field names were checked against each model's fal API page on 2026-10-21.
  */
+import type { SwapCase } from '../pipeline/cases';
 
 export const GENERATOR_CANDIDATES = [
   'fal-ai/nano-banana-pro/edit',
@@ -14,8 +15,18 @@ export const REFINE_MODEL = 'fal-ai/face-swap';
 export type GeneratorModel = (typeof GENERATOR_CANDIDATES)[number];
 export type FalModel = GeneratorModel | typeof REFINE_MODEL;
 
-/** Bake-off winner, see docs/decisions/0001-generator.md. */
+/** Bake-off winner overall; the generator for cases the bake-off has no pair for. See docs/decisions/0001-generator.md. */
 export const PRIMARY_GENERATOR: GeneratorModel = 'fal-ai/bytedance/seedream/v4.5/edit';
+
+/** Per-case bake-off winners (likeness, then a by-eye check), see docs/decisions/0001-generator.md. */
+export const GENERATOR_BY_CASE: Record<SwapCase, GeneratorModel> = {
+  case1: 'fal-ai/nano-banana-pro/edit',
+  case2_m2f: 'fal-ai/bytedance/seedream/v4.5/edit',
+  case2_f2m: 'fal-ai/bytedance/seedream/v4.5/edit',
+  case3_a2c: 'fal-ai/bytedance/seedream/v4.5/edit',
+  case3_c2a: 'fal-ai/bytedance/seedream/v4.5/edit',
+  other: PRIMARY_GENERATOR,
+};
 
 export type BuildInputArgs = {
   prompt: string;

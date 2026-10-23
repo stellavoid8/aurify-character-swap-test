@@ -29,12 +29,12 @@ const PREV_KEYS = ['ArrowLeft', 'ArrowUp'];
 /**
  * "Other versions": a radio group of thumbnails. Arrow keys move and choose, like any radio group.
  * Versions from before the latest Try again sit after an "Earlier versions" divider; Fix the face
- * results made since then count as current.
+ * results made since then count as current. Hidden while there is only the one shown result.
  */
 export function CandidateStrip({ candidates, chosenId, onChoose }: CandidateStripProps) {
   const items = stripOrder(candidates);
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
-  if (items.length === 0) return null;
+  if (items.length <= 1) return null;
 
   const latestRound = items[0].round;
   const latest = candidates.filter((c) => c.round === latestRound && c.status !== 'pending');
