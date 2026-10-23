@@ -7,7 +7,7 @@ export default function NotFound() {
   return (
     <>
       <AppHeader />
-      <main className="mx-auto w-full max-w-5xl px-4 py-12 md:px-8">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 items-center justify-center px-4 py-12 md:px-8">
         <EmptyState
           icon={<ImageOff />}
           title="We can't find that page"

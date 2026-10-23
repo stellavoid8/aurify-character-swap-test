@@ -44,7 +44,7 @@ export function GateForm({ next }: { next: string }) {
           maxLength={64}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
-          className="h-12 rounded-md border border-line bg-surface px-4 text-body text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent aria-invalid:border-danger"
+          className="h-12 rounded-md border border-line bg-bg/60 px-4 text-body text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent aria-invalid:border-danger"
         />
       </div>
       {error && (

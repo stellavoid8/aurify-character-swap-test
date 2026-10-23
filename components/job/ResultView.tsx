@@ -24,7 +24,7 @@ import { ShareButton } from './ShareButton';
 import { StartOverLink } from './StartOverLink';
 import { SubjectNotice } from './SubjectNotice';
 
-const IMAGE = 'block h-auto w-full max-h-[70vh] rounded-md bg-surface-2 object-contain md:max-h-[60vh]';
+const IMAGE = 'block h-auto w-full max-h-[70vh] rounded-md bg-surface-2 object-contain md:max-h-[calc(100dvh-17rem)]';
 /** Stand-in pixel size for stored photos: `next/image` needs one, and `h-auto` lets the real aspect ratio win once loaded. */
 const UNKNOWN_SIZE = 1024;
 const BOX_STROKES = [
@@ -295,116 +295,123 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
   const busy = refining || starting || retrying;
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
-      <div className="flex justify-center">
+    <div className="flex min-w-0 flex-col gap-5">
+      <div className="flex flex-col items-center gap-4 md:flex-row md:justify-between">
         <StepIndicator current={3} />
+        <h1 className="text-center font-display text-title md:order-first md:text-left">Here&apos;s your picture</h1>
       </div>
-      <h1 className="text-center font-display text-title md:text-left">Here&apos;s your picture</h1>
       {notice}
 
-      {/* Result first in reading order and on phones; last (on the right) on desktop. */}
-      <div className={cn('grid grid-cols-2 gap-4', inlinePanel ? 'md:grid-cols-2' : 'md:grid-cols-3')}>
-        <CompareCell
-          caption="Result"
-          url={chosen.imageUrl}
-          alt={`Your result, version ${chosenIndex + 1}`}
-          className="col-span-2 md:order-last md:col-span-1 md:ring-2 md:ring-accent"
-          sizes="(min-width: 768px) 480px, 100vw"
-          priority
-          overlay={
-            refining && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/80">
-                <Spinner size="lg" className="text-accent" />
-                <p role="status" className="text-body font-semibold">
-                  Fixing the face…
-                </p>
-              </div>
-            )
-          }
-        />
-        {inlinePanel ? (
-          panel
-        ) : (
-          <>
+      {/* Large screens: the pictures on the left, what to do with them on the right, so it all fits one screen. */}
+      <div className="flex min-w-0 flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* Result first in reading order and on phones; last (on the right) on desktop. */}
+          <div className={cn('grid grid-cols-2 gap-4', inlinePanel ? 'md:grid-cols-2' : 'md:grid-cols-3')}>
             <CompareCell
-              caption="Template"
-              url={template.url}
-              alt="Template photo"
-              sizes="(min-width: 768px) 320px, 50vw"
-              box={
-                multiPerson && template.subjectBox && template.width > 0 && template.height > 0
-                  ? { box: template.subjectBox, width: template.width, height: template.height }
-                  : null
+              caption="Result"
+              url={chosen.imageUrl}
+              alt={`Your result, version ${chosenIndex + 1}`}
+              className="col-span-2 md:order-last md:col-span-1 md:ring-2 md:ring-accent"
+              sizes="(min-width: 768px) 480px, 100vw"
+              priority
+              overlay={
+                refining && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/80">
+                    <Spinner size="lg" className="text-accent" />
+                    <p role="status" className="text-body font-semibold">
+                      Fixing the face…
+                    </p>
+                  </div>
+                )
               }
             />
-            <CompareCell caption="Your photo" url={userPhoto?.url ?? null} alt="Your photo" sizes="(min-width: 768px) 320px, 50vw" />
-          </>
-        )}
-      </div>
-      {!isDesktop && panel}
+            {inlinePanel ? (
+              panel
+            ) : (
+              <>
+                <CompareCell
+                  caption="Template"
+                  url={template.url}
+                  alt="Template photo"
+                  sizes="(min-width: 768px) 320px, 50vw"
+                  box={
+                    multiPerson && template.subjectBox && template.width > 0 && template.height > 0
+                      ? { box: template.subjectBox, width: template.width, height: template.height }
+                      : null
+                  }
+                />
+                <CompareCell caption="Your photo" url={userPhoto?.url ?? null} alt="Your photo" sizes="(min-width: 768px) 320px, 50vw" />
+              </>
+            )}
+          </div>
+          {!isDesktop && panel}
 
-      <SubjectNotice peopleCount={template.peopleCount} subjectLabel={template.subjectLabel} />
-      {notices.map((n, i) => (
-        <Notice key={`${n.code}-${i}`} tone={n.code === 'REFINEMENT_FAILED' ? 'warning' : 'info'}>
-          {n.message}
-        </Notice>
-      ))}
+          <SubjectNotice peopleCount={template.peopleCount} subjectLabel={template.subjectLabel} />
+          {notices.map((n, i) => (
+            <Notice key={`${n.code}-${i}`} tone={n.code === 'REFINEMENT_FAILED' ? 'warning' : 'info'}>
+              {n.message}
+            </Notice>
+          ))}
+        </div>
 
-      <div className="flex flex-col gap-3 md:flex-row">
-        <a href={downloadUrl} download={filename} className={buttonStyles({ size: 'lg' })}>
-          <Download aria-hidden className="size-4" />
-          Download
-        </a>
-        <ShareButton downloadUrl={downloadUrl} imageUrl={chosen.imageUrl} filename={filename} />
-      </div>
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex flex-col gap-3 md:flex-row lg:flex-wrap">
+            <a href={downloadUrl} download={filename} className={buttonStyles({ size: 'lg' })}>
+              <Download aria-hidden className="size-4" />
+              Download
+            </a>
+            <ShareButton downloadUrl={downloadUrl} imageUrl={chosen.imageUrl} filename={filename} />
+          </div>
 
-      <section aria-labelledby="not-quite-right" className="flex flex-col gap-3 rounded-lg bg-surface-2 p-4 md:p-6">
-        <h2 id="not-quite-right" ref={sectionHeading} tabIndex={-1} className="text-heading focus:outline-none">
-          Not quite right?
-        </h2>
-        {roundsUsed && !refining ? (
-          <>
-            <p className="text-small text-ink-muted">
-              You&apos;ve made as many versions of this picture as we allow. Start a new picture to keep going.
-            </p>
-            <div>
-              <StartOverLink />
-            </div>
-          </>
-        ) : view.unitsLeftToday === 0 && !refining ? (
-          <Notice tone="warning" title={ERRORS.RATE_LIMITED_SESSION.message}>
-            {ERRORS.RATE_LIMITED_SESSION.nextStep}
-          </Notice>
-        ) : (
-          <>
-            <p className="text-small text-ink-muted">
-              Try again makes 3 new versions. Fix the face sharpens your likeness on this one.
-            </p>
-            <div className="flex flex-col gap-3 md:flex-row">
-              <Button variant="secondary" size="lg" onClick={onRetry} loading={retrying} disabled={busy || !view.canRetry}>
-                {!retrying && <RefreshCw aria-hidden className="size-4" />}
-                Try again
-              </Button>
-              <Button
-                ref={fixButton}
-                variant="secondary"
-                size="lg"
-                onClick={() => void fixFace(chosen.id)}
-                loading={starting || refining}
-                disabled={busy || !view.canRefine}
-              >
-                {!(starting || refining) && <ScanFace aria-hidden className="size-4" />}
-                Fix the face
-              </Button>
-            </div>
-          </>
-        )}
-      </section>
+          <section aria-labelledby="not-quite-right" className="flex flex-col gap-3 rounded-lg border border-line bg-surface/60 p-4 backdrop-blur-md md:p-5">
+            <h2 id="not-quite-right" ref={sectionHeading} tabIndex={-1} className="text-heading focus:outline-none">
+              Not quite right?
+            </h2>
+            {roundsUsed && !refining ? (
+              <>
+                <p className="text-small text-ink-muted">
+                  You&apos;ve made as many versions of this picture as we allow. Start a new picture to keep going.
+                </p>
+                <div>
+                  <StartOverLink />
+                </div>
+              </>
+            ) : view.unitsLeftToday === 0 && !refining ? (
+              <Notice tone="warning" title={ERRORS.RATE_LIMITED_SESSION.message}>
+                {ERRORS.RATE_LIMITED_SESSION.nextStep}
+              </Notice>
+            ) : (
+              <>
+                <p className="text-small text-ink-muted">
+                  Try again makes 3 new versions. Fix the face sharpens your likeness on this one.
+                </p>
+                <div className="flex flex-col gap-3 md:flex-row lg:flex-wrap">
+                  <Button variant="secondary" size="lg" onClick={onRetry} loading={retrying} disabled={busy || !view.canRetry}>
+                    {!retrying && <RefreshCw aria-hidden className="size-4" />}
+                    Try again
+                  </Button>
+                  <Button
+                    ref={fixButton}
+                    variant="secondary"
+                    size="lg"
+                    onClick={() => void fixFace(chosen.id)}
+                    loading={starting || refining}
+                    disabled={busy || !view.canRefine}
+                  >
+                    {!(starting || refining) && <ScanFace aria-hidden className="size-4" />}
+                    Fix the face
+                  </Button>
+                </div>
+              </>
+            )}
+          </section>
 
-      <CandidateStrip candidates={view.candidates} chosenId={chosen.id} onChoose={choose} />
+          <CandidateStrip candidates={view.candidates} chosenId={chosen.id} onChoose={choose} />
 
-      <div className="flex justify-center">
-        <StartOverLink />
+          <div className="flex justify-center lg:justify-start">
+            <StartOverLink />
+          </div>
+        </div>
       </div>
     </div>
   );
