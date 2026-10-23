@@ -24,22 +24,19 @@ import { runUtility, runVideoSync, uploadToFalStorage } from '../lib/fal/client'
 import {
   buildAnimateInput,
   buildFrameInput,
-  buildNormalizeInput,
   FFMPEG_EXTRACT_FRAME,
-  FFMPEG_MERGE,
   FFMPEG_METADATA,
-  normalizedSize,
   parseFrameOutput,
-  parseNormalizeOutput,
   parseVideoMetadata,
   type AnimationResolution,
   type FrameType,
 } from '../lib/fal/models';
 import { falVideoCostMicros } from '../lib/fal/pricing';
 import { normalizeImage } from '../lib/images';
-import { MAX_VIDEO_SECONDS, VIDEO_MAX_LONG_EDGE, VIDEO_TARGET_FPS } from '../lib/limits';
+import { MAX_VIDEO_SECONDS, VIDEO_TARGET_FPS } from '../lib/limits';
 import { formatUsd } from '../lib/money';
 import { fetchObject } from '../lib/storage';
+import { normalizeVideo } from '../lib/videos';
 
 const BAKEOFF_DIR = path.join(process.cwd(), 'bakeoff');
 const OUT_DIR = path.join(BAKEOFF_DIR, 'out', 'video');
@@ -104,15 +101,13 @@ async function frameIdentity(videoUrl: string, frame: FrameType, reference: numb
   return index === null ? null : cosine(await faceEngine.embedFace(jpeg, faces[index]), reference);
 }
 
-/** The clip as production prepares it: probed, then re-encoded to VIDEO_TARGET_FPS and at most 720p. */
+/** The clip as production prepares it: probed, then re-encoded (lib/videos.ts) to VIDEO_TARGET_FPS and at most VIDEO_MAX_LONG_EDGE. */
 async function prepareClip(pair: Pair): Promise<{ url: string; seconds: number; frames: number }> {
   const raw = await uploadLocal(pair.clip, 'video/mp4');
   const meta = parseVideoMetadata(await utility(FFMPEG_METADATA, { media_url: raw }));
   if (meta.durationMs === null) throw new Error('probe has no duration');
   if (meta.durationMs > MAX_VIDEO_SECONDS * 1000 + 250) console.warn(`  ${pair.id}: clip is ${meta.durationMs} ms, over the app's limit`);
-  const size = normalizedSize(meta.width, meta.height, VIDEO_MAX_LONG_EDGE);
-  const { videoUrl } = parseNormalizeOutput(await utility(FFMPEG_MERGE, buildNormalizeInput({ videoUrl: raw, fps: VIDEO_TARGET_FPS, size })));
-  if (!videoUrl) throw new Error('re-encode returned no video');
+  const videoUrl = await uploadToFalStorage(await normalizeVideo(raw, { stage: 'bakeoff-video' }), 'video/mp4');
   const seconds = meta.durationMs / 1000;
   return { url: videoUrl, seconds, frames: Math.round(seconds * VIDEO_TARGET_FPS) };
 }
