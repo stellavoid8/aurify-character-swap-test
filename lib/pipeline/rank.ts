@@ -67,6 +67,26 @@ export async function scoreIdentity(candidate: Candidate, stage: string): Promis
   }
 }
 
+/**
+ * A video's likeness: each frame scored as rankRound scores a still, and the lowest kept, so the
+ * point where the face drifted furthest from the user is what the number shows. Null when no frame
+ * could be measured.
+ */
+export async function scoreVideoIdentity(candidate: Candidate, frameUrls: string[]): Promise<number | null> {
+  try {
+    const { reference, target } = await identityTargetFor(candidate.jobId);
+    const scores: number[] = [];
+    for (const url of frameUrls) {
+      const score = await identityScore(candidate, reference, target, 'animating', url);
+      if (score !== null) scores.push(score);
+    }
+    return scores.length > 0 ? Math.min(...scores) : null;
+  } catch (err) {
+    console.error('[rank] video identity unavailable', { candidateId: candidate.id, err: err instanceof Error ? err.message : err });
+    return null;
+  }
+}
+
 async function scoreAndRank(roundId: string, succeeded: Candidate[]): Promise<string> {
   const [round] = await db.select().from(jobRounds).where(eq(jobRounds.id, roundId));
   const { template, reference, target } = await identityTargetFor(round.jobId);
@@ -115,12 +135,16 @@ function pickFace(faces: Face[], width: number, height: number, target: [number,
   return confident.reduce((best, face) => (cost(face) < cost(best) ? face : best));
 }
 
-/** Cosine similarity to the reference, or null (with the reason recorded) when it can't be measured. */
+/**
+ * Cosine similarity to the reference, or null (with the reason recorded) when it can't be measured.
+ * Scores the candidate's image, or `imageUrl` when given (a frame of a video result).
+ */
 async function identityScore(
   candidate: Candidate,
   reference: number[] | null,
   target: [number, number] | null,
   stage: string,
+  imageUrl: string = candidate.imageUrl!,
 ): Promise<number | null> {
   const ctx = { jobId: candidate.jobId, roundId: candidate.roundId, candidateId: candidate.id, stage };
   const started = performance.now();
@@ -130,7 +154,7 @@ async function identityScore(
     if (!reference) {
       reason = 'no_reference';
     } else {
-      const jpeg = await fetchObject(candidate.imageUrl!);
+      const jpeg = await fetchObject(imageUrl);
       const { faces, width, height } = await faceEngine.analyzeImage(jpeg, ctx);
       const face = pickFace(faces, width, height, target);
       if (face) {

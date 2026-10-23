@@ -15,17 +15,20 @@ const STEPS: { label: string; stage: JobStage }[] = [
   { label: 'Swapping you in', stage: 'generating' },
   { label: 'Checking the likeness', stage: 'ranking' },
 ];
+/** A video job's last step. It never runs on this screen (the result screen shows the stills while it does); it's here so people know what comes next. */
+const VIDEO_STEP = { label: 'Animating your clip', stage: 'animating' } as const satisfies { label: string; stage: JobStage };
 
 /**
  * Try again rounds reuse the template analysis, so they skip its step and say the picture is new.
  * The exception is a retry after the analysis itself failed: that round analyzes again.
- * Fix the face rounds never show this screen; the result screen shows their progress.
+ * Fix the face and animation rounds never show this screen; the result screen shows their progress.
  */
-function progressSteps(stage: JobStage, round: number): ProgressStep[] {
-  const steps =
+function progressSteps(stage: JobStage, round: number, video: boolean): ProgressStep[] {
+  const base =
     round > 1 && stage !== 'analyzing'
       ? STEPS.slice(1).map((s) => (s.stage === 'generating' ? { ...s, label: 'Swapping you in again' } : s))
       : STEPS;
+  const steps = video ? [...base, VIDEO_STEP] : base;
   const current = stage === 'done' ? steps.length : Math.max(0, steps.findIndex((s) => s.stage === stage));
   return steps.map(({ label }, i) => ({ label, state: i < current ? 'done' : i === current ? 'active' : 'todo' }));
 }
@@ -80,10 +83,10 @@ export function WaitingScreen({ view, receivedAt }: { view: JobView; receivedAt:
         <Thumb url={mainPhoto?.url ?? null} alt="Your photo" />
       </div>
 
-      <h1 className="font-display text-title">Making your picture</h1>
+      <h1 className="font-display text-title">{view.mode === 'video' ? 'Making your video' : 'Making your picture'}</h1>
 
       <div aria-live="polite" className="w-full max-w-xs text-left">
-        <ProgressSteps steps={progressSteps(view.stage, view.round)} />
+        <ProgressSteps steps={progressSteps(view.stage, view.round, view.mode === 'video')} />
       </div>
 
       <div className="flex flex-col gap-1">
@@ -94,6 +97,7 @@ export function WaitingScreen({ view, receivedAt }: { view: JobView; receivedAt:
         <p className="text-small text-ink-muted">
           {elapsedMs > view.etaMs ? 'Taking a little longer than usual…' : `Usually about ${etaMinutes} min`}
         </p>
+        {view.mode === 'video' && <p className="text-small text-ink-muted">Your stills come first, then the video.</p>}
       </div>
 
       {view.notices.length > 0 && (

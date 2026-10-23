@@ -20,6 +20,7 @@
     "face:smoke": "tsx scripts/face-smoke.ts",
     "fixtures": "tsx scripts/make-fixtures.ts",
     "bakeoff": "tsx scripts/bakeoff.ts",
+    "bakeoff:video": "tsx scripts/bakeoff-video.ts",
     "report": "tsx scripts/report.ts"
   },
   "dependencies": {

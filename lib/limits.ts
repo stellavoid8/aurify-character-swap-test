@@ -21,16 +21,39 @@ export const CLIENT_PRERESIZE_LONG_EDGE = 2560;
 /** Timeout for server-side reads of stored or provider images. */
 export const FETCH_TIMEOUT_MS = 30_000;
 
+// Video templates (docs/decisions/0002-video-swap-architecture.md)
+export const MAX_VIDEO_SECONDS = 15;
+/** Container durations round up a little; a clip this much over MAX_VIDEO_SECONDS still passes. */
+export const VIDEO_DURATION_TOLERANCE_MS = 250;
+/** Every clip is re-encoded to this frame rate at upload: fal bills video by frames ÷ 16, so this bounds the cost. */
+export const VIDEO_TARGET_FPS = 24;
+/** Long edge of the normalized clip; the video model renders at most 720p. */
+export const VIDEO_MAX_LONG_EDGE = 1280;
+/** A 15 s 4K60 HEVC phone clip fits. Photos keep MAX_UPLOAD_BYTES. */
+export const MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024;
+/** Cap for server-side reads of normalized clips and result videos. */
+export const MAX_RESULT_VIDEO_BYTES = 60 * 1024 * 1024;
+export const ACCEPTED_VIDEO_MIME = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'];
+export const ACCEPTED_VIDEO_EXT = ['.mp4', '.mov', '.webm', '.m4v'];
+/** Per-call limit for the synchronous fal ffmpeg calls (probe, re-encode, frame grabs) in the normalize action. */
+export const VIDEO_UTILITY_TIMEOUT_MS = 60_000;
+
 // Generation
 export const MAX_AUTO_RETRIES = 1;
 export const MAX_ROUNDS_PER_JOB = 6;
 export const JOB_TIMEOUT_MS = 6 * 60_000;
+/** Deadline of an animation round: a 15 s render is several model windows. Tune from bake-off timings. */
+export const ANIMATION_TIMEOUT_MS = 25 * 60_000;
+/** Rate-limit weight of an animation round: about 5× the cost of a still round. */
+export const ANIMATION_ROUND_UNITS = 5;
+/** Output resolution of the video model: '480p' | '580p' | '720p'. */
+export const ANIMATION_RESOLUTION = '580p';
 export const POLL_INTERVAL_MS = 2500;
 /** After this many failed polls in a row the waiting screen says the connection is lost and slows down. */
 export const POLL_MAX_ERRORS = 3;
 export const POLL_BACKOFF_MS = 10_000;
 
-// Daily caps: one `job_rounds` row is one unit.
+// Daily caps: one `job_rounds` row is `units` units (1, or ANIMATION_ROUND_UNITS for an animation round).
 export const SESSION_DAILY_UNITS = 20;
 export async function globalDailyUnits(): Promise<number> {
   const { env } = await import('./env');
@@ -51,6 +74,8 @@ export const ORPHAN_MAX_AGE_MS = 24 * 60 * 60_000;
 // Waiting screen ETA: fall back to the default until enough recent rounds exist.
 export const DEFAULT_ETA_MS = 90_000;
 export const ETA_MIN_SAMPLES = 5;
+/** Animation ETA fallback per second of clip, until ETA_MIN_SAMPLES animation rounds exist. */
+export const DEFAULT_ANIMATION_MS_PER_SECOND = 20_000;
 /** Rounds older than this don't count toward the ETA. */
 export const ETA_WINDOW_DAYS = 7;
 export const ETA_CACHE_SECONDS = 5 * 60;

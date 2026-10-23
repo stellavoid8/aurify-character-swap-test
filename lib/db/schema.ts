@@ -22,10 +22,12 @@ import type { FaceBox, JobFlags, JobNotice, StageTimings } from '../types';
  */
 
 export const uploadKind = pgEnum('upload_kind', ['template', 'user']);
+export const mediaType = pgEnum('media_type', ['image', 'video']);
+export const jobMode = pgEnum('job_mode', ['photo', 'video']);
 export const uploadStatus = pgEnum('upload_status', ['pending', 'ok', 'rejected']);
 export const jobStatus = pgEnum('job_status', ['queued', 'running', 'succeeded', 'failed', 'timed_out']);
-export const jobStage = pgEnum('job_stage', ['analyzing', 'generating', 'ranking', 'refining', 'done']);
-export const roundKind = pgEnum('round_kind', ['generation', 'refinement']);
+export const jobStage = pgEnum('job_stage', ['analyzing', 'generating', 'ranking', 'refining', 'animating', 'done']);
+export const roundKind = pgEnum('round_kind', ['generation', 'refinement', 'animation']);
 export const roundStatus = pgEnum('round_status', ['running', 'succeeded', 'failed', 'timed_out']);
 export const candidateStatus = pgEnum('candidate_status', ['pending', 'succeeded', 'failed']);
 export const provider = pgEnum('provider', ['fal', 'anthropic', 'local']);
@@ -40,6 +42,8 @@ export const uploads = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     sessionId: uuid('session_id').notNull(),
     kind: uploadKind('kind').notNull(),
+    /** A video template's `url` is its keyframe JPEG, so every image step works on it unchanged. */
+    mediaType: mediaType('media_type').notNull().default('image'),
     status: uploadStatus('status').notNull().default('pending'),
     rejectCode: text('reject_code'),
     rawUrl: text('raw_url').notNull(),
@@ -54,6 +58,13 @@ export const uploads = pgTable(
     qualityScore: real('quality_score'),
     /** User only: 512-d identity embedding. */
     embedding: real('embedding').array(),
+    /** Video template only: the normalized clip (VIDEO_TARGET_FPS, mp4), the video model's input. */
+    videoUrl: text('video_url'),
+    durationMs: integer('duration_ms'),
+    fps: real('fps'),
+    frameCount: integer('frame_count'),
+    /** Which frame of the clip `url` was taken from. */
+    keyframe: text('keyframe').$type<'first' | 'middle' | 'last'>(),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     deletedAt: timestamptz('deleted_at'),
   },
@@ -65,6 +76,7 @@ export const jobs = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     sessionId: uuid('session_id').notNull(),
+    mode: jobMode('mode').notNull().default('photo'),
     status: jobStatus('status').notNull().default('queued'),
     stage: jobStage('stage').notNull().default('analyzing'),
     templateUploadId: uuid('template_upload_id')
@@ -106,6 +118,8 @@ export const jobRounds = pgTable(
     sessionId: uuid('session_id').notNull(),
     round: integer('round').notNull(),
     kind: roundKind('kind').notNull(),
+    /** Rate-limit weight: 1, or ANIMATION_ROUND_UNITS for an animation round. */
+    units: integer('units').notNull().default(1),
     status: roundStatus('status').notNull().default('running'),
     stageTimings: jsonb('stage_timings').$type<StageTimings>().notNull().default({}),
     startedAt: timestamptz('started_at').notNull().defaultNow(),
@@ -135,8 +149,12 @@ export const candidates = pgTable(
     attempt: integer('attempt').notNull().default(1),
     falRequestId: text('fal_request_id').unique('candidates_fal_request_id_unique'),
     status: candidateStatus('status').notNull().default('pending'),
-    /** Our Blob copy of the result, not fal's URL. */
+    /** Our Blob copy of the result, not fal's URL. An animation's is its driving still (the video's poster). */
     imageUrl: text('image_url'),
+    /** Animation only: our Blob copy of the result video. */
+    videoUrl: text('video_url'),
+    /** Animation only, segmented mode: which part of the clip. Null when one call covers the whole clip. */
+    segmentIndex: integer('segment_index'),
     identityScore: real('identity_score'),
     actionScore: real('action_score'),
     rank: integer('rank'),

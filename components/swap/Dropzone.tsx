@@ -5,6 +5,8 @@ import { useState, type DragEvent } from 'react';
 import { cn } from '@/lib/cn';
 
 export const FILE_ACCEPT = 'image/*,.heic,.heif';
+/** Template clips, offered only when VIDEO_ENABLED. */
+export const VIDEO_FILE_ACCEPT = 'video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v';
 
 type DropzoneProps = {
   onFiles: (files: File[]) => void;
@@ -12,6 +14,8 @@ type DropzoneProps = {
   disabled?: boolean;
   title?: string;
   hint?: string;
+  /** The file input's `accept`; photos by default. */
+  accept?: string;
   className?: string;
 };
 
@@ -25,6 +29,7 @@ export function Dropzone({
   disabled = false,
   title = 'Choose a photo',
   hint = 'or drag it here · JPG, PNG, WebP, HEIC up to 25 MB',
+  accept = FILE_ACCEPT,
   className,
 }: DropzoneProps) {
   const [dragging, setDragging] = useState(false);
@@ -65,7 +70,7 @@ export function Dropzone({
       <span className="text-small text-ink-muted">{hint}</span>
       <input
         type="file"
-        accept={FILE_ACCEPT}
+        accept={accept}
         multiple={multiple}
         disabled={disabled}
         className="sr-only"

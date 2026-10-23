@@ -23,6 +23,7 @@ function photo(id: string, qualityScore: number | null, embedding: number[] | nu
     id,
     sessionId: '00000000-0000-4000-8000-000000000000',
     kind: 'user',
+    mediaType: 'image',
     status: 'ok',
     rejectCode: null,
     rawUrl: `https://example.test/${id}-raw.jpg`,
@@ -35,6 +36,11 @@ function photo(id: string, qualityScore: number | null, embedding: number[] | nu
     qualityScore,
     embedding,
     createdAt: new Date(),
+    videoUrl: null,
+    durationMs: null,
+    fps: null,
+    frameCount: null,
+    keyframe: null,
     deletedAt: null,
   };
 }

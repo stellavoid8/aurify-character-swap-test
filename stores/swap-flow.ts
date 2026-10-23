@@ -11,7 +11,9 @@ export type SlotStatus = 'uploading' | 'checking' | 'ok' | 'rejected' | 'error';
 
 export type SlotState = {
   localId: string;
+  /** An object URL of the picked file: an image, or for a template clip a video. */
   previewUrl: string;
+  mediaType?: 'image' | 'video';
   status: SlotStatus;
   /** Upload progress, 0–1. */
   progress: number;

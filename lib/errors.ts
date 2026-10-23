@@ -1,5 +1,5 @@
 import { ZodError } from 'zod';
-import { GATE_WINDOW_MS, MAX_UPLOAD_BYTES, MAX_USER_PHOTOS, SESSION_DAILY_UNITS } from './limits';
+import { GATE_WINDOW_MS, MAX_UPLOAD_BYTES, MAX_USER_PHOTOS, MAX_VIDEO_SECONDS, MAX_VIDEO_UPLOAD_BYTES, SESSION_DAILY_UNITS } from './limits';
 import type { ActionResult, ApiError, ErrorCode, NoticeCode } from './types';
 
 type ErrorDef = {
@@ -46,6 +46,31 @@ export const ERRORS = {
     message: "We couldn't open that photo.",
     nextStep: 'Try another photo, or save it as a JPG first.',
   },
+  VIDEO_TOO_LONG: {
+    status: 422,
+    message: `Clips can be up to ${MAX_VIDEO_SECONDS} seconds.`,
+    nextStep: 'Trim it on your phone and try again.',
+  },
+  VIDEO_TOO_LARGE: {
+    status: 413,
+    message: `That clip is over ${MAX_VIDEO_UPLOAD_BYTES / (1024 * 1024)} MB.`,
+    nextStep: 'Trim it, or record at a lower resolution.',
+  },
+  VIDEO_DECODE_FAILED: {
+    status: 422,
+    message: "We couldn't open that clip.",
+    nextStep: 'Try another clip, or save it as an MP4 first.',
+  },
+  VIDEO_MULTIPLE_PEOPLE: {
+    status: 422,
+    message: "There's more than one person in this clip.",
+    nextStep: 'Choose a clip with one person in it.',
+  },
+  VIDEO_UNAVAILABLE: {
+    status: 403,
+    message: "Video templates aren't switched on.",
+    nextStep: 'Choose a photo instead.',
+  },
   UPLOAD_FAILED: { status: 502, message: "The upload didn't finish.", nextStep: 'Check your connection and try again.' },
   NO_FACE: {
     status: 422,
@@ -91,6 +116,11 @@ export const ERRORS = {
     message: "We couldn't fix the face this time. Your picture is unchanged.",
     nextStep: 'Keep the current version or tap Try again.',
   },
+  ANIMATION_FAILED: {
+    status: 502,
+    message: "We couldn't animate your picture this time. Your stills are below.",
+    nextStep: 'Tap Animate this one to try again.',
+  },
   /** /api/blob/upload in local-storage mode: tells the browser to use /api/dev-upload instead. */
   DIRECT_UPLOAD_UNAVAILABLE: {
     status: 404,
@@ -113,6 +143,8 @@ export const NOTICES = {
   LATE_RESULTS_ADDED: { message: 'A version from your earlier attempt finished late and was added below.' },
   /** Fix the face failed or ran out of time; the job stays succeeded with its original picture. */
   REFINEMENT_FAILED: { message: ERRORS.REFINEMENT_FAILED.message },
+  /** The animation round failed or ran out of time; the job stays succeeded with its stills. */
+  ANIMATION_FAILED: { message: ERRORS.ANIMATION_FAILED.message },
 } as const satisfies Record<string, { message: string }>;
 
 export function isErrorCode(value: unknown): value is ErrorCode {

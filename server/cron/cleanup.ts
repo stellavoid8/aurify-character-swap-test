@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { candidates, jobs, uploads } from '@/lib/db/schema';
 import { CLEANUP_BATCH_SIZE, ORPHAN_MAX_AGE_MS, retentionDays } from '@/lib/limits';
@@ -27,7 +27,7 @@ export async function runCleanup(now: Date = new Date()): Promise<CleanupCounts>
     if ((await enforceTimeout(job)).status !== 'running') counts.timedOut++;
   }
 
-  // 2. Expired jobs, with their result images. Rounds, candidates, provider calls and webhook events cascade.
+  // 2. Expired jobs, with their result images and videos. Rounds, candidates, provider calls and webhook events cascade.
   const jobCutoff = new Date(now.getTime() - (await retentionDays()) * 24 * 60 * 60_000);
   for (;;) {
     const batch = await db
@@ -37,11 +37,13 @@ export async function runCleanup(now: Date = new Date()): Promise<CleanupCounts>
       .limit(CLEANUP_BATCH_SIZE);
     if (batch.length === 0) break;
     const ids = batch.map((job) => job.id);
-    const images = await db
-      .select({ url: candidates.imageUrl })
+    const results = await db
+      .select({ image: candidates.imageUrl, video: candidates.videoUrl })
       .from(candidates)
-      .where(and(inArray(candidates.jobId, ids), isNotNull(candidates.imageUrl)));
-    counts.deletedBlobs += await deleteObjects(images.map((row) => row.url as string));
+      .where(and(inArray(candidates.jobId, ids), or(isNotNull(candidates.imageUrl), isNotNull(candidates.videoUrl))));
+    // An animation's image is its parent still's object; deleting it twice is harmless.
+    const urls = [...new Set(results.flatMap((row) => [row.image, row.video].filter((url): url is string => url !== null)))];
+    counts.deletedBlobs += await deleteObjects(urls);
     counts.deletedJobs += (await db.delete(jobs).where(inArray(jobs.id, ids)).returning({ id: jobs.id })).length;
   }
 
@@ -54,12 +56,12 @@ export async function runCleanup(now: Date = new Date()): Promise<CleanupCounts>
   );
   for (;;) {
     const batch = await db
-      .select({ id: uploads.id, rawUrl: uploads.rawUrl, url: uploads.url })
+      .select({ id: uploads.id, rawUrl: uploads.rawUrl, url: uploads.url, videoUrl: uploads.videoUrl })
       .from(uploads)
       .where(orphan)
       .limit(CLEANUP_BATCH_SIZE);
     if (batch.length === 0) break;
-    const urls = batch.flatMap((row) => (row.url ? [row.rawUrl, row.url] : [row.rawUrl]));
+    const urls = batch.flatMap((row) => [row.rawUrl, row.url, row.videoUrl].filter((url): url is string => url !== null));
     counts.deletedBlobs += await deleteObjects(urls);
     // `orphan` again: an upload a job picked up since the select keeps its row.
     const deleted = await db

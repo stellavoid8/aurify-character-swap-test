@@ -48,9 +48,14 @@ export type RgbImage = { data: Uint8Array; width: number; height: number };
 export type UploadView = {
   id: string;
   kind: 'template' | 'user';
+  mediaType: 'image' | 'video';
   status: 'pending' | 'ok' | 'rejected';
   rejectCode: string | null;
+  /** A clip's keyframe JPEG for a video template. */
   url: string | null;
+  /** Video template only: the normalized clip. */
+  videoUrl: string | null;
+  durationMs: number | null;
   width: number;
   height: number;
   /** Confident faces only (score ≥ FACE_MIN_SCORE). */
@@ -61,16 +66,21 @@ export type UploadView = {
 };
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timed_out';
-export type JobStage = 'analyzing' | 'generating' | 'ranking' | 'refining' | 'done';
+export type JobStage = 'analyzing' | 'generating' | 'ranking' | 'refining' | 'animating' | 'done';
+export type JobMode = 'photo' | 'video';
+export type RoundKind = 'generation' | 'refinement' | 'animation';
 
 export type CandidateView = {
   id: string;
   round: number;
-  kind: 'generation' | 'refinement';
-  /** The generator's display name; null for Fix the face results. */
+  kind: RoundKind;
+  /** The generator's display name; null for Fix the face and animation results. */
   modelLabel: string | null;
   status: 'pending' | 'succeeded' | 'failed';
+  /** An animation's is its driving still. */
   imageUrl: string | null;
+  /** Animation only. */
+  videoUrl: string | null;
   identityScore: number | null;
   actionScore: number | null;
   rank: number | null;
@@ -80,6 +90,7 @@ export type CandidateView = {
 /** Everything the job page shows: rendered by the page and returned by `GET /api/jobs/[id]`. Plain JSON. */
 export type JobView = {
   id: string;
+  mode: JobMode;
   status: JobStatus;
   stage: JobStage;
   round: number;
@@ -90,6 +101,9 @@ export type JobView = {
   error: { code: ErrorCode; message: string; nextStep: string } | null;
   template: {
     url: string | null;
+    /** Video jobs: the normalized template clip. */
+    videoUrl: string | null;
+    durationMs: number | null;
     width: number;
     height: number;
     subjectBox: FaceBox['box'] | null;
@@ -103,5 +117,7 @@ export type JobView = {
   chosenCandidateId: string | null;
   canRetry: boolean;
   canRefine: boolean;
+  /** Video jobs: a finished still can start an animation round. */
+  canAnimate: boolean;
   unitsLeftToday: number;
 };
