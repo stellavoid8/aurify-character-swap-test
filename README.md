@@ -40,8 +40,8 @@ With only `DATABASE_URL` set, everything else runs on mocks: generation (`lib/fa
 
 - The browser uploads photos straight to Vercel Blob. Phone photos never pass through a function body.
 - `normalizeUpload` turns each photo into a JPEG (EXIF rotation, HEIC) and runs the face checks. `POST /api/jobs` creates the job and returns at once.
-- Everything slow runs after the response (`after()`) or on fal. Claude reads the template. fal's queue generates 3 versions and calls a webhook for each one.
-- The webhook copies each result into Blob. The last one in fans the round in and ranks the versions by likeness.
+- Everything slow runs after the response (`after()`) or on fal. Claude reads the template. fal's queue generates one image on each of the three generators and calls a webhook for each when it is done.
+- The webhook copies the result into Blob, finishes the round and scores its likeness.
 - The browser polls `GET /api/jobs/:id` every 2.5 s. A daily cron times out stuck jobs and deletes data past retention.
 
 ```mermaid
@@ -69,7 +69,7 @@ Exceptions found in acceptance runs:
 
 | Job | Model | Why |
 | --- | --- | --- |
-| Generation (3 versions per round) | `PRIMARY_GENERATOR` in [`lib/fal/models.ts`](lib/fal/models.ts): TODO(real run): bake-off winner | Chosen by the bake-off below |
+| Generation (3 images per round) | Every model in `GENERATOR_CANDIDATES` in [`lib/fal/models.ts`](lib/fal/models.ts): nano-banana-pro, seedream 4.5 and FLUX Kontext Max, one image each | The result screen shows every model's version with its likeness score, and ranks them by likeness. The bake-off's per-case winners are in [0001](docs/decisions/0001-generator.md) |
 | Fix the face | `fal-ai/face-swap` (`REFINE_MODEL`) | Puts the reference photo's face on the chosen result and leaves the rest of the picture alone |
 | Template analysis | Claude (`claude-opus-5-5`, low effort) | Names the subject, action, held objects and the cross-gender or cross-age case for the prompt. Also rates how well each version keeps the action when likeness ties |
 | Likeness scoring | InsightFace `buffalo_s` (SCRFD-500M + MobileFaceNet ArcFace) on `onnxruntime-node` | Small enough to run inside a Vercel function, with a 512-d embedding that is good enough to rank versions |
@@ -123,8 +123,8 @@ TODO(real run): what happened · how often (n/N) · why. What the app does: a co
 ## Optional features and why
 
 - **Photo guidance and live check:** most bad results come from bad input photos. Advice before upload and an instant face check in the browser catch those cheaply.
-- **Auto-ranking of 3 versions:** each round makes 3 versions and puts the best likeness first. Near ties go to the version that keeps the template's action best.
-- **Try again:** 3 new versions with new seeds. Earlier versions stay in the strip.
+- **One image per round, on the best model for the case:** the template analysis decides the case (man to man, man to woman, woman to man, adult to child, child to adult) and `GENERATOR_BY_CASE` picks the generator that scored best on it in the bake-off.
+- **Try again:** one new version with a new seed. Earlier versions stay in the strip, which appears once there are two.
 - **Fix the face:** face-swap on the chosen version, with a before/after slider. Likeness before → after: TODO(real run): mean identity score change.
 - **Share:** sends the picture itself through the system share sheet where the browser supports it, and copies its link otherwise.
 

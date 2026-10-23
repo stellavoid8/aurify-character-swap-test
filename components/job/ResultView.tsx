@@ -18,6 +18,7 @@ import { MAX_ROUNDS_PER_JOB } from '@/lib/limits';
 import type { CandidateView, FaceBox, JobView } from '@/lib/types';
 import { chooseCandidate, refineCandidate } from '@/server/jobs/actions';
 import { CandidateStrip, stripOrder } from './CandidateStrip';
+import { likenessPct, versionLabel } from './labels';
 import { CompareSlider } from './CompareSlider';
 import type { RoundStarted } from './JobScreen';
 import { ShareButton } from './ShareButton';
@@ -102,12 +103,6 @@ function CompareCell({ caption, url, alt, className, box, overlay, sizes, priori
 function defaultChoice(view: JobView, items: CandidateView[]): string | null {
   if (items.some((c) => c.id === view.chosenCandidateId)) return view.chosenCandidateId;
   return (items.find((c) => c.round === items[0]?.round && c.rank === 1) ?? items[0])?.id ?? null;
-}
-
-/** Likeness as people read it: cosine similarity clamped to 0–1, as a whole percentage. */
-export function likenessPct(cosine: number | null): string {
-  if (cosine === null) return 'not measured';
-  return `${Math.round(Math.min(1, Math.max(0, cosine)) * 100)}%`;
 }
 
 const DESKTOP = '(min-width: 48rem)';
@@ -308,7 +303,7 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
           {/* Result first in reading order and on phones; last (on the right) on desktop. */}
           <div className={cn('grid grid-cols-2 gap-4', inlinePanel ? 'md:grid-cols-2' : 'md:grid-cols-3')}>
             <CompareCell
-              caption="Result"
+              caption={`Result · ${versionLabel(chosen)} · likeness ${likenessPct(chosen.identityScore)}`}
               url={chosen.imageUrl}
               alt={`Your result, version ${chosenIndex + 1}`}
               className="col-span-2 md:order-last md:col-span-1 md:ring-2 md:ring-accent"
@@ -383,7 +378,7 @@ export function ResultView({ view, onRoundStarted, onRetry, retrying, notice }: 
             ) : (
               <>
                 <p className="text-small text-ink-muted">
-                  Try again makes 3 new versions. Fix the face sharpens your likeness on this one.
+                  Try again makes a new version. Fix the face sharpens your likeness on this one.
                 </p>
                 <div className="flex flex-col gap-3 md:flex-row lg:flex-wrap">
                   <Button variant="secondary" size="lg" onClick={onRetry} loading={retrying} disabled={busy || !view.canRetry}>

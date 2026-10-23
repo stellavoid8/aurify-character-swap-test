@@ -1,9 +1,10 @@
 import 'server-only';
 import Anthropic from '@anthropic-ai/sdk';
-import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
-import type { z } from 'zod';
+import { transformJSONSchema } from '@anthropic-ai/sdk/lib/transform-json-schema';
+import { z } from 'zod';
 import { env } from '../env';
 import { AppError } from '../errors';
+import { sniffImageType } from '../images';
 import { AI_MAX_TOKENS, AI_RETRY_DELAY_MS, AI_TIMEOUT_MS } from '../limits';
 import { microsFromTokens } from '../money';
 import { fetchObject } from '../storage';
@@ -16,6 +17,10 @@ import { ActionRating, TemplateAnalysis } from './schemas';
  * Claude vision calls with structured output. Every HTTP attempt writes one provider_calls row.
  * Retries are ours, not the SDK's: one retry after AI_RETRY_DELAY_MS on 429 or a dropped
  * connection, then ANALYSIS_FAILED.
+ *
+ * The output comes back as the input of a strict `submit` tool and images are always inlined as
+ * base64, because ANTHROPIC_BASE_URL may point at a gateway that ignores output_config.format and
+ * rejects URL image sources.
  */
 
 const ANALYZE_SYSTEM = `You describe photos for an app that puts a user into a template photo.
@@ -35,13 +40,21 @@ Give a one-sentence reason per candidate. Never name or identify real people.`;
 type ImageBlock = Anthropic.Beta.BetaImageBlockParam;
 type ContentBlock = Anthropic.Beta.BetaContentBlockParam;
 
-/** Public https URLs go by reference; anything else (local dev storage) is read and inlined. */
+const MEDIA_TYPES = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' } as const;
+
 async function imageBlock(url: string): Promise<ImageBlock> {
-  const parsed = new URL(url);
-  const isPublic = parsed.protocol === 'https:' && parsed.hostname !== 'localhost' && !/^127\.|^\[?::1/.test(parsed.hostname);
-  if (isPublic) return { type: 'image', source: { type: 'url', url } };
-  const data = (await fetchObject(url)).toString('base64');
-  return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } };
+  const bytes = await fetchObject(url);
+  const type = sniffImageType(bytes);
+  if (!type || !(type in MEDIA_TYPES)) throw new Error(`imageBlock: unsupported image type ${type ?? 'unknown'}`);
+  const media_type = MEDIA_TYPES[type as keyof typeof MEDIA_TYPES];
+  return { type: 'image', source: { type: 'base64', media_type, data: bytes.toString('base64') } };
+}
+
+const SUBMIT_TOOL = 'submit';
+
+function submitTool(schema: z.ZodType): Anthropic.Beta.BetaTool {
+  const input_schema = transformJSONSchema(z.toJSONSchema(schema, { reused: 'ref' })) as Anthropic.Beta.BetaTool.InputSchema;
+  return { name: SUBMIT_TOOL, description: 'Submit your answer. Call this exactly once.', input_schema, strict: true };
 }
 
 async function labelledImages(images: { label: string; url: string }[]): Promise<ContentBlock[]> {
@@ -60,6 +73,24 @@ function usageFrom(message: Anthropic.Beta.BetaMessage, requestedModel: string):
   return { inputTokens, outputTokens, costUsdMicros: microsFromTokens({ inputTokens, outputTokens, ...prices }) };
 }
 
+/** The model called submit with input that failed the schema; carries what the correction turn needs. */
+class InvalidSubmit extends Error {
+  constructor(
+    readonly reply: Anthropic.Beta.BetaContentBlock[],
+    readonly toolUseId: string,
+    readonly issues: string,
+    readonly usage: AiUsage,
+  ) {
+    super(issues);
+  }
+}
+
+const addUsage = (a: AiUsage, b: AiUsage): AiUsage => ({
+  inputTokens: a.inputTokens + b.inputTokens,
+  outputTokens: a.outputTokens + b.outputTokens,
+  costUsdMicros: a.costUsdMicros + b.costUsdMicros,
+});
+
 const isRetryable = (err: unknown) => err instanceof Anthropic.RateLimitError || err instanceof Anthropic.APIConnectionError;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -72,26 +103,33 @@ type CallSpec<S extends z.ZodType> = {
 };
 
 /** Narrow slice of the SDK client this adapter uses; tests pass a stub. */
-export type AnthropicLike = { beta: { messages: Pick<Anthropic['beta']['messages'], 'parse'> } };
+export type AnthropicLike = { beta: { messages: Pick<Anthropic['beta']['messages'], 'create'> } };
 
 export function createAnthropicAi(getClient: () => AnthropicLike): AiAdapter {
-  async function attempt<S extends z.ZodType>(spec: CallSpec<S>): Promise<{ result: z.infer<S>; usage: AiUsage }> {
+  async function attempt<S extends z.ZodType>(
+    spec: CallSpec<S>,
+    messages: Anthropic.Beta.BetaMessageParam[] = [{ role: 'user', content: spec.content }],
+  ): Promise<{ result: z.infer<S>; usage: AiUsage }> {
     const model = ANALYSIS_MODEL;
     const started = performance.now();
     let message: Anthropic.Beta.BetaMessage | undefined;
     try {
-      const response = await getClient().beta.messages.parse({
+      const response = await getClient().beta.messages.create({
         model,
         max_tokens: AI_MAX_TOKENS,
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
-        output_config: { effort: 'low', format: betaZodOutputFormat(spec.schema) },
-        system: spec.system,
-        messages: [{ role: 'user', content: spec.content }],
+        output_config: { effort: 'low' },
+        // Forced tool_choice is rejected on this model, so the system prompt asks for the call.
+        tools: [submitTool(spec.schema)],
+        system: `${spec.system}\n\nAnswer only by calling the ${SUBMIT_TOOL} tool.`,
+        messages,
       });
       message = response;
       const usage = usageFrom(response, model);
-      const failed = response.stop_reason === 'refusal' || response.parsed_output == null;
+      const submitted = response.content.find((b) => b.type === 'tool_use' && b.name === SUBMIT_TOOL);
+      const parsed = submitted?.type === 'tool_use' ? spec.schema.safeParse(submitted.input) : null;
+      const failed = response.stop_reason === 'refusal' || !parsed?.success;
       await recordCall({
         jobId: spec.context?.jobId,
         roundId: spec.context?.roundId,
@@ -110,13 +148,18 @@ export function createAnthropicAi(getClient: () => AnthropicLike): AiAdapter {
         },
       });
       if (failed) {
-        throw new AppError('ANALYSIS_FAILED', { detail: `${spec.stage}: stop_reason ${response.stop_reason}, no parsed output` });
+        const issues = parsed?.error?.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+        if (issues && submitted?.type === 'tool_use' && response.stop_reason !== 'refusal') {
+          throw new InvalidSubmit(response.content, submitted.id, issues, usage);
+        }
+        const reason = issues ? `invalid ${SUBMIT_TOOL} input (${issues})` : `no ${SUBMIT_TOOL} call`;
+        throw new AppError('ANALYSIS_FAILED', { detail: `${spec.stage}: stop_reason ${response.stop_reason}, ${reason}` });
       }
-      return { result: response.parsed_output as z.infer<S>, usage };
+      return { result: parsed.data as z.infer<S>, usage };
     } catch (err) {
-      if (err instanceof AppError) throw err;
+      if (err instanceof AppError || err instanceof InvalidSubmit) throw err;
       if (!message) {
-        // The request itself failed (HTTP error, timeout, or the SDK could not parse the output).
+        // The request itself failed (HTTP error or timeout).
         await recordCall({
           jobId: spec.context?.jobId,
           roundId: spec.context?.roundId,
@@ -134,14 +177,40 @@ export function createAnthropicAi(getClient: () => AnthropicLike): AiAdapter {
     }
   }
 
+  /**
+   * The gateway in front of the API does not always enforce `strict`, so a submit call can fail the
+   * schema. Hand the issues back as an error tool_result and let the model resubmit once.
+   */
+  async function withCorrection<S extends z.ZodType>(spec: CallSpec<S>) {
+    try {
+      return await attempt(spec);
+    } catch (err) {
+      if (!(err instanceof InvalidSubmit)) throw err;
+      try {
+        const { result, usage } = await attempt(spec, [
+          { role: 'user', content: spec.content },
+          { role: 'assistant', content: err.reply },
+          {
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: err.toolUseId, is_error: true, content: `Invalid input: ${err.issues}. Call ${SUBMIT_TOOL} again with corrected input.` }],
+          },
+        ]);
+        return { result, usage: addUsage(err.usage, usage) };
+      } catch (retryErr) {
+        if (!(retryErr instanceof InvalidSubmit)) throw retryErr;
+        throw new AppError('ANALYSIS_FAILED', { detail: `${spec.stage}: invalid ${SUBMIT_TOOL} input after correction (${retryErr.issues})` });
+      }
+    }
+  }
+
   async function call<S extends z.ZodType>(spec: CallSpec<S>) {
     try {
       try {
-        return await attempt(spec);
+        return await withCorrection(spec);
       } catch (err) {
         if (!isRetryable(err)) throw err;
         await sleep(AI_RETRY_DELAY_MS);
-        return await attempt(spec);
+        return await withCorrection(spec);
       }
     } catch (err) {
       if (err instanceof AppError) throw err;

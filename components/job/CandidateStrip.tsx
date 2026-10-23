@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/cn';
 import { skipOptimizer } from '@/lib/image-src';
 import type { CandidateView } from '@/lib/types';
+import { likenessPct, versionLabel } from './labels';
 
 type CandidateStripProps = {
   /** Every candidate of the job, as the view orders them (round, then rank). */
@@ -27,14 +28,14 @@ const NEXT_KEYS = ['ArrowRight', 'ArrowDown'];
 const PREV_KEYS = ['ArrowLeft', 'ArrowUp'];
 
 /**
- * "Other versions": a radio group of thumbnails. Arrow keys move and choose, like any radio group.
+ * "Versions by model": a radio group of thumbnails, each with its model and likeness. Arrow keys move and choose, like any radio group.
  * Versions from before the latest Try again sit after an "Earlier versions" divider; Fix the face
- * results made since then count as current.
+ * results made since then count as current. Hidden while there is only the one shown result.
  */
 export function CandidateStrip({ candidates, chosenId, onChoose }: CandidateStripProps) {
   const items = stripOrder(candidates);
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
-  if (items.length === 0) return null;
+  if (items.length <= 1) return null;
 
   const latestRound = items[0].round;
   const latest = candidates.filter((c) => c.round === latestRound && c.status !== 'pending');
@@ -60,7 +61,7 @@ export function CandidateStrip({ candidates, chosenId, onChoose }: CandidateStri
     <section aria-labelledby="other-versions" className="flex min-w-0 flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
         <h2 id="other-versions" className="text-heading">
-          Other versions
+          Versions by model
         </h2>
         {finished < latest.length && (
           <p className="text-small text-ink-muted">
@@ -95,14 +96,17 @@ export function CandidateStrip({ candidates, chosenId, onChoose }: CandidateStri
                 <Image
                   src={c.imageUrl!}
                   unoptimized={skipOptimizer(c.imageUrl!)}
-                  alt={`Your result, version ${index + 1}${isEarlier(c) ? ', earlier' : ''}`}
+                  alt={`Your result, version ${index + 1}, ${versionLabel(c)}, likeness ${likenessPct(c.identityScore)}${isEarlier(c) ? ', earlier' : ''}`}
                   width={96}
                   height={96}
                   sizes="(min-width: 768px) 96px, 80px"
                   className={cn('size-20 rounded-md bg-surface-2 object-cover md:size-24', selected && 'ring-2 ring-accent')}
                 />
+                <span aria-hidden className="max-w-24 text-center text-caption leading-tight">
+                  {versionLabel(c)}
+                  <span className="block font-semibold tabular-nums">{likenessPct(c.identityScore)}</span>
+                </span>
                 {best && <Badge tone="accent">Best match</Badge>}
-                {c.kind === 'refinement' && <Badge tone="success">Fixed face</Badge>}
               </button>
             </Fragment>
           );

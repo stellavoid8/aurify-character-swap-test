@@ -81,9 +81,10 @@ export function versions(page: Page) {
   return page.getByRole('radiogroup', { name: 'Versions' }).getByRole('radio');
 }
 
-export async function expectResult(page: Page, count: number): Promise<void> {
+/** The result screen with `pictures` made so far. A single picture has no versions strip. */
+export async function expectResult(page: Page, pictures: number): Promise<void> {
   await expect(page.getByRole('heading', { name: "Here's your picture" })).toBeVisible({ timeout: JOB_TIMEOUT });
-  await expect(versions(page)).toHaveCount(count);
+  await expect(versions(page)).toHaveCount(pictures > 1 ? pictures : 0);
 }
 
 /** Login through to a finished job with one user photo. Returns the session and job ids. */
@@ -94,7 +95,7 @@ export async function finishedJob(page: Page): Promise<{ sid: string; jobId: str
   await addPhotos(page, [PHOTOS.oneFace]);
   await expectPhotosReady(page, 1);
   const jobId = await makePicture(page);
-  await expectResult(page, 3);
+  await expectResult(page, 1);
   return { sid, jobId };
 }
 
