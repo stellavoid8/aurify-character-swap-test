@@ -50,7 +50,8 @@ sequenceDiagram
   participant A as Next.js (Vercel)
   participant F as fal
   B->>A: upload clip ≤ 15 s (direct to Blob, multipart)
-  A->>F: metadata (probe) and merge-videos([clip], 24 fps, ≤720p) (sync)
+  A->>F: metadata (probe) (sync)
+  A->>A: ffmpeg-static re-encode (24 fps, long edge ≤ 1280)
   A->>F: extract-frame first, middle, last (sync)
   A-->>B: UploadView (poster, duration, faces)
   B->>A: createJob(mode=video)
@@ -69,7 +70,8 @@ Ids live only in `lib/fal/models.ts`, as they do today.
 | --- | --- | --- |
 | Video generator | `fal-ai/wan/v2.2-14b/animate/replace` | inputs `video_url`, `image_url`, `resolution` (480p/580p/720p), `seed`, `num_inference_steps`, `enable_output_safety_checker`; output `{ video: { url } }`. $0.04 / $0.06 / $0.08 per video second at 480p / 580p / 720p, where a video second is **16 frames**. No documented maximum duration. |
 | Probe | `fal-ai/ffmpeg-api/metadata` | `media_url` returns `{ media: Video }` with `duration` (s), `fps`, `frame_count` and `resolution.{width,height}`, per the endpoint types published in `@fal-ai/client`. $0. |
-| Clip normalization, and the segment join | `fal-ai/ffmpeg-api/merge-videos` | `video_urls[]`, `target_fps` (1–60), `resolution`; output `{ video }`. A one-item list re-encodes a single clip, which is how we normalize. $0 listed. |
+| Segment join | `fal-ai/ffmpeg-api/merge-videos` | `video_urls[]` (**at least 2**), `target_fps` (1–60), `resolution`; output `{ video }`. $0 listed. Not usable for normalizing one clip: a one-item list is rejected with 422 `too_short`. |
+| Clip normalization | `ffmpeg-static` in the upload function (`lib/videos.ts`) | Reads the raw clip over HTTP, writes H.264/AAC faststart mp4 at `VIDEO_TARGET_FPS`, long edge ≤ `VIDEO_MAX_LONG_EDGE`, audio kept when present. About 4–11 s for a 15 s 1080p clip on a dev laptop. One `provider_calls` row (`local`, `ffmpeg-static`). |
 | Keyframe and identity frames | `fal-ai/ffmpeg-api/extract-frame` | `video_url`, `frame_type` ∈ first, middle, last; returns `images[].url`. About $0.0002/s. |
 
 Using fal's ffmpeg endpoints means **no ffmpeg binary on Vercel**: there's no bundle-size hit and no native dependency,
@@ -86,7 +88,7 @@ fal bills **frames ÷ 16**, so a 15 s clip costs very different amounts dependin
 | 30 fps | 450 | 28.1 | $1.69 | $2.25 |
 | **24 fps (normalized)** | **360** | **22.5** | **$1.35** | **$1.80** |
 
-Every clip is therefore **normalized at upload**: `merge-videos([raw], target_fps: VIDEO_TARGET_FPS, resolution: ≤720p long edge)`.
+Every clip is therefore **normalized at upload**: re-encoded with `ffmpeg-static` to `VIDEO_TARGET_FPS` and a long edge of at most `VIDEO_MAX_LONG_EDGE` (`lib/videos.ts`).
 The result is copied into our Blob store as the upload's `video_url`, and the raw clip is deleted. This is the same rule
 photos follow (raw is deleted after normalizing), and it means:
 
@@ -228,8 +230,9 @@ id and attempt, not media type.
 
 1. Does the replace model accept a 15 s, 360-frame input in one call, and how does quality hold from 0–5 s against
    10–15 s? This decides whether `VIDEO_SEGMENT_SECONDS` stays null.
-2. Does `merge-videos` with a one-item list re-encode at `target_fps`? If it doesn't, find another fal ffmpeg endpoint that
-   does, or use `ffmpeg-static` in the normalize function.
+2. ~~Does `merge-videos` with a one-item list re-encode at `target_fps`?~~ Resolved 2026-10-23: no, it requires two or more
+   `video_urls` (422 `too_short`), so every clip upload failed with VIDEO_DECODE_FAILED. No fal single-clip endpoint sets
+   the frame rate (`workflow-utilities/scale-video` only resizes), so normalization runs `ffmpeg-static` in the upload function.
 3. ~~Do the metadata or merge outputs include duration and fps?~~ Resolved: the metadata types include `duration`, `fps` and `frame_count`.
 4. Does the output keep the source audio? If it doesn't, add a mux step back onto the normalized clip's track, or ship
    silent with a note.

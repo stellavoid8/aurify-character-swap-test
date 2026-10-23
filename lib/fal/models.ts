@@ -126,31 +126,6 @@ export function parseVideoOutput(payload: unknown): { videoUrl: string | null } 
   return { videoUrl: typeof url === 'string' && url.length > 0 ? url : null };
 }
 
-/**
- * Re-encodes one clip to `fps`, and to `size` when given: merge-videos with a one-item list.
- * fal accepts sizes with both sides from 512 to 2048 (see `normalizedSize`).
- */
-export function buildNormalizeInput({
-  videoUrl,
-  fps,
-  size,
-}: {
-  videoUrl: string;
-  fps: number;
-  size: { width: number; height: number } | null;
-}): Record<string, unknown> {
-  return { video_urls: [videoUrl], target_fps: fps, ...(size ? { resolution: size } : {}) };
-}
-
-/** Output size for a clip: long edge down to `longEdge`, even sides. Null keeps the source size (already small, or outside fal's range). */
-export function normalizedSize(width: number | null, height: number | null, longEdge: number): { width: number; height: number } | null {
-  if (!width || !height || Math.max(width, height) <= longEdge) return null;
-  const scale = longEdge / Math.max(width, height);
-  const even = (n: number) => Math.max(2, Math.round((n * scale) / 2) * 2);
-  const size = { width: even(width), height: even(height) };
-  return Math.min(size.width, size.height) < 512 ? null : size;
-}
-
 export function buildFrameInput({ videoUrl, frame }: { videoUrl: string; frame: FrameType }): Record<string, unknown> {
   return { video_url: videoUrl, frame_type: frame };
 }
@@ -183,9 +158,6 @@ export function parseVideoMetadata(payload: unknown): VideoMetadata {
     frameCount: num(m.frame_count),
   };
 }
-
-/** FFMPEG_MERGE returns `{ video: { url } }`, the same shape as the video model. */
-export const parseNormalizeOutput = parseVideoOutput;
 
 /** FFMPEG_EXTRACT_FRAME returns `{ images: [{ url }] }`. */
 export function parseFrameOutput(payload: unknown): { imageUrl: string | null } {
