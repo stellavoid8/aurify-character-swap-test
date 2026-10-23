@@ -47,7 +47,7 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
         if (event.target === event.currentTarget) onClose();
       }}
       className={cn(
-        'm-auto w-[calc(100%-2rem)] max-w-md rounded-lg bg-surface p-0 text-ink shadow-card backdrop:bg-ink/50',
+        'm-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-line bg-surface p-0 text-ink shadow-card backdrop:bg-bg/70 backdrop:backdrop-blur-sm',
         className,
       )}
     >

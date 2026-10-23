@@ -11,6 +11,13 @@
  * whose bakeoff/out/<pair>/<model>.jpg exists (or that was content-blocked) is not run again, so a
  * re-run makes no paid calls for finished cells. Failed cells are retried. Delete a file to redo it.
  * Writes bakeoff/out/results.csv, grid.html and summary.md.
+ *
+ * Options:
+ *   --case <case>  run only that case's pairs, so each case is its own execution; reports go to
+ *                  results-<case>.csv, grid-<case>.html and summary-<case>.md.
+ *   --rescore      score the saved images again and run nothing new: no paid calls.
+ * A result with more faces than the template (a collage or contact sheet instead of a swap) is
+ * marked `collage` and its likeness is left out, since its best panel can match the user.
  */
 import './load-env';
 import './register-server-only';
@@ -43,6 +50,21 @@ const SESSION_ID = '00000000-0000-0000-0000-0000000000b0';
 const CASES = ['case1', 'case2_m2f', 'case2_f2m', 'case3_a2c', 'case3_c2a', 'stress'] as const;
 type PairCase = (typeof CASES)[number];
 
+function parseArgs(argv: string[]): { only: PairCase | null; rescore: boolean } {
+  let only: PairCase | null = null;
+  let rescore = false;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--rescore') rescore = true;
+    else if (argv[i] === '--case' && CASES.includes(argv[i + 1] as PairCase)) only = argv[++i] as PairCase;
+    else {
+      console.error(`Unknown option ${argv[i]}. Options: --case <${CASES.join('|')}>, --rescore`);
+      process.exit(1);
+    }
+  }
+  return { only, rescore };
+}
+const ARGS = parseArgs(process.argv.slice(2));
+
 const PairSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/i, { error: 'letters, digits, - and _ only' }),
   case: z.enum(CASES),
@@ -60,13 +82,15 @@ type Prep = {
   /** Normalized centre of the template subject's face; null when the template has no face. */
   subjectCenter: [number, number] | null;
   referenceEmbedding: number[];
+  /** Confident faces in the normalized template; a result with more is a collage. */
+  templateFaces: number;
   analysis: TemplateAnalysis;
   cases: Cases;
   notices: JobNotice[];
   prompt: string;
 };
 
-type CellStatus = 'ok' | 'no_face' | 'blocked' | 'failed';
+type CellStatus = 'ok' | 'no_face' | 'collage' | 'blocked' | 'failed';
 type Cell = {
   pair: string;
   case: PairCase;
@@ -152,6 +176,11 @@ function userUpload(n: number, url: string, img: { jpeg: Buffer; width: number; 
 async function prepare(pair: Pair): Promise<Prep> {
   const dir = pairDir(pair);
   const cached = await readJson<Prep>(path.join(dir, 'prep.json'));
+  if (cached && cached.templateFaces === undefined) {
+    // Prepared before templateFaces existed: count them on the saved template, no paid call.
+    cached.templateFaces = await countFaces(await readFile(path.join(dir, 'template.jpg')));
+    await writeJson(path.join(dir, 'prep.json'), cached);
+  }
   if (cached) return cached;
   await mkdir(dir, { recursive: true });
   const ctx = { stage: 'bakeoff' };
@@ -197,6 +226,7 @@ async function prepare(pair: Pair): Promise<Prep> {
     userUrls: used.map((u) => u.url!),
     subjectCenter: subject ? centre(subject, template.width, template.height) : null,
     referenceEmbedding: used[0].embedding!,
+    templateFaces: templateFaces.filter((f) => f.score >= FACE_MIN_SCORE).length,
     analysis,
     cases,
     notices: selection.notices,
@@ -206,18 +236,33 @@ async function prepare(pair: Pair): Promise<Prep> {
   return prep;
 }
 
-/** Likeness of the face nearest the template subject's location to the reference photo; null if no face. */
-async function scoreIdentity(jpeg: Buffer, prep: Prep): Promise<number | null> {
+async function countFaces(jpeg: Buffer): Promise<number> {
+  const { faces } = await faceEngine.analyzeImage(jpeg, { stage: 'bakeoff' });
+  return faces.filter((f) => f.score >= FACE_MIN_SCORE).length;
+}
+
+type Score = Pick<Cell, 'identity' | 'status' | 'error'>;
+
+/**
+ * Likeness of the face nearest the template subject's location to the reference photo. No face
+ * gives `no_face`; more faces than the template gives `collage`, with its likeness left out.
+ */
+async function scoreResult(jpeg: Buffer, prep: Prep): Promise<Score> {
   const { faces, width, height } = await faceEngine.analyzeImage(jpeg, { stage: 'bakeoff-score' });
   const confident = faces.filter((f) => f.score >= FACE_MIN_SCORE);
-  if (confident.length === 0) return null;
+  if (confident.length === 0) return { identity: null, status: 'no_face', error: null };
   const [cx, cy] = prep.subjectCenter ?? [0.5, 0.5];
   const distance = (f: Face) => {
     const [x, y] = centre(f, width, height);
     return Math.hypot(x - cx, y - cy);
   };
   const nearest = confident.reduce((best, f) => (distance(f) < distance(best) ? f : best));
-  return cosine(await faceEngine.embedFace(jpeg, nearest, { stage: 'bakeoff-score' }), prep.referenceEmbedding);
+  const identity = cosine(await faceEngine.embedFace(jpeg, nearest, { stage: 'bakeoff-score' }), prep.referenceEmbedding);
+  if (confident.length > Math.max(prep.templateFaces, 1)) {
+    const error = `${confident.length} faces against ${prep.templateFaces} in the template (nearest likeness ${identity.toFixed(3)})`;
+    return { identity: null, status: 'collage', error };
+  }
+  return { identity, status: 'ok', error: null };
 }
 
 type CellSpec = {
@@ -239,14 +284,15 @@ async function runCell({ pair, prep, model, kind, baseModel, file, imageUrls }: 
   const sameBase = cached?.baseModel === baseModel;
   const haveImage = await exists(jpgPath);
 
-  if (cached && sameBase && (haveImage || cached.status === 'blocked')) return cached;
-  if (haveImage && !cached) {
-    // Image saved but its record lost: rescore locally rather than pay again.
-    const identity = await scoreIdentity(await readFile(jpgPath), prep);
-    const cell: Cell = { ...base, identity, latencyMs: null, costUsdMicros: 0, status: identity === null ? 'no_face' : 'ok', error: null };
+  if (haveImage && (ARGS.rescore || !cached)) {
+    // Image saved: score it locally (again, or because its record was lost) rather than pay again.
+    const keep = cached && sameBase ? { latencyMs: cached.latencyMs, costUsdMicros: cached.costUsdMicros } : { latencyMs: null, costUsdMicros: 0 };
+    const cell: Cell = { ...base, ...keep, ...(await scoreResult(await readFile(jpgPath), prep)) };
     await writeJson(jsonPath, cell);
     return cell;
   }
+  if (cached && sameBase && (haveImage || cached.status === 'blocked')) return cached;
+  if (ARGS.rescore) return { ...base, identity: null, latencyMs: null, costUsdMicros: 0, status: 'failed', error: 'not run (--rescore)' };
 
   const label = `[${pair.id}] ${kind === 'refinement' ? `${model} on ${baseModel}` : model}`;
   console.log(`${label}: running`);
@@ -261,9 +307,9 @@ async function runCell({ pair, prep, model, kind, baseModel, file, imageUrls }: 
     costUsdMicros = falCostMicros(model, result.imageUrls.length);
     if (!result.imageUrls[0]) throw new AppError('GENERATION_FAILED', { detail: 'no image in the output' });
     const { jpeg } = await normalizeImage(await fetchObject(result.imageUrls[0]));
-    const identity = await scoreIdentity(jpeg, prep);
+    const score = await scoreResult(jpeg, prep);
     await writeFile(jpgPath, jpeg);
-    cell = { ...base, identity, latencyMs, costUsdMicros, status: identity === null ? 'no_face' : 'ok', error: null };
+    cell = { ...base, latencyMs, costUsdMicros, ...score };
   } catch (err) {
     const blocked = err instanceof AppError && err.code === 'CONTENT_BLOCKED';
     const error = err instanceof Error ? err.message : String(err);
@@ -297,11 +343,12 @@ type ModelStats = {
   failed: number;
   blocked: number;
   noFace: number;
+  collage: number;
 };
 
 function stats(label: string, cells: Cell[]): ModelStats {
   const ids = scores(cells);
-  const produced = cells.filter((c) => c.status === 'ok' || c.status === 'no_face');
+  const produced = cells.filter((c) => c.status === 'ok' || c.status === 'no_face' || c.status === 'collage');
   return {
     label,
     runs: cells.length,
@@ -312,6 +359,7 @@ function stats(label: string, cells: Cell[]): ModelStats {
     failed: cells.filter((c) => c.status === 'failed').length,
     blocked: cells.filter((c) => c.status === 'blocked').length,
     noFace: cells.filter((c) => c.status === 'no_face').length,
+    collage: cells.filter((c) => c.status === 'collage').length,
   };
 }
 
@@ -350,11 +398,11 @@ function summaryMd(pairs: Pair[], preps: Map<string, Prep>, skipped: Map<string,
   const generation = cells.filter((c) => c.kind === 'generation');
   const refinement = cells.filter((c) => c.kind === 'refinement');
   const table = (rows: ModelStats[]) => [
-    '| Model | Runs | Mean likeness | Min likeness | p50 latency | Mean cost / image | Failed | Blocked | No face found |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| Model | Runs | Mean likeness | Min likeness | p50 latency | Mean cost / image | Failed | Blocked | No face found | Collage |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
     ...rows.map(
       (s) =>
-        `| \`${s.label}\` | ${s.runs} | ${fmt(s.meanIdentity)} | ${fmt(s.minIdentity)} | ${fmtSeconds(s.p50LatencyMs)} | ${s.meanCostMicros === null ? '–' : formatUsd(s.meanCostMicros)} | ${s.failed} | ${s.blocked} | ${s.noFace} |`,
+        `| \`${s.label}\` | ${s.runs} | ${fmt(s.meanIdentity)} | ${fmt(s.minIdentity)} | ${fmtSeconds(s.p50LatencyMs)} | ${s.meanCostMicros === null ? '–' : formatUsd(s.meanCostMicros)} | ${s.failed} | ${s.blocked} | ${s.noFace} | ${s.collage} |`,
     ),
   ];
 
@@ -400,6 +448,19 @@ function summaryMd(pairs: Pair[], preps: Map<string, Prep>, skipped: Map<string,
       const ids = casePairs(c);
       const cols = GENERATOR_CANDIDATES.map((m) => fmt(mean(scores(generation.filter((g) => g.model === m && ids.includes(g.pair))))));
       return `| ${c} | ${ids.length} | ${cols.join(' | ')} |`;
+    }),
+    '',
+    '## Best model per case',
+    '',
+    'Highest mean likeness among scored results (collages excluded). Check each against the grid by eye before setting `GENERATOR_BY_CASE` in `lib/fal/models.ts`.',
+    '',
+    '| Case | Best model | Mean likeness |',
+    '| --- | --- | ---: |',
+    ...CASES.filter((c) => casePairs(c).length > 0).map((c) => {
+      const ids = casePairs(c);
+      const top = topModel(generation.filter((g) => ids.includes(g.pair)));
+      const score = top ? mean(scores(generation.filter((g) => g.model === top && ids.includes(g.pair)))) : null;
+      return `| ${c} | ${top ? `\`${top}\`` : '–'} | ${fmt(score)} |`;
     }),
     '',
   );
@@ -450,7 +511,7 @@ function gridHtml(pairs: Pair[], preps: Map<string, Prep>, cells: Cell[], top: F
       const cellsHtml = columns.map((col) => {
         const cell = col.find(pair.id);
         if (!cell) return '<td class="empty">not run</td>';
-        const picture = cell.status === 'ok' || cell.status === 'no_face' ? img(`${pair.id}/${col.file}.jpg`, col.title) : `<div class="none">${cell.status}</div>`;
+        const picture = cell.status === 'ok' || cell.status === 'no_face' || cell.status === 'collage' ? img(`${pair.id}/${col.file}.jpg`, col.title) : `<div class="none">${cell.status}</div>`;
         const score = cell.identity === null ? cell.status : cell.identity.toFixed(3);
         const cls = cell.identity !== null && cell.identity === best ? ' class="best"' : '';
         return `<td><figure>${picture}<figcaption${cls}>${esc(score)} · ${fmtSeconds(cell.latencyMs)}</figcaption></figure></td>`;
@@ -533,8 +594,13 @@ async function loadPairs(): Promise<Pair[]> {
 
 async function main() {
   preflight();
-  const pairs = await loadPairs();
+  const pairs = (await loadPairs()).filter((p) => ARGS.only === null || p.case === ARGS.only);
+  if (pairs.length === 0) {
+    console.error(`bakeoff/pairs.json has no ${ARGS.only} pair.`);
+    process.exit(1);
+  }
   await mkdir(OUT_DIR, { recursive: true });
+  if (ARGS.only) console.log(`Case ${ARGS.only} only.${ARGS.rescore ? ' Rescoring saved images, no paid calls.' : ''}`);
   console.log(`${pairs.length} pairs × ${GENERATOR_CANDIDATES.length} generators; storage: ${useLocalStorage ? 'fal' : 'Vercel Blob'}`);
 
   const preps = new Map<string, Prep>();
@@ -591,13 +657,15 @@ async function main() {
     : [];
 
   const cells = [...generation, ...refinement];
-  await writeFile(path.join(OUT_DIR, 'results.csv'), resultsCsv(cells));
-  await writeFile(path.join(OUT_DIR, 'grid.html'), gridHtml(pairs, preps, cells, top));
-  await writeFile(path.join(OUT_DIR, 'summary.md'), summaryMd(pairs, preps, skipped, cells, top));
+  const suffix = ARGS.only ? `-${ARGS.only}` : '';
+  const [csvName, gridName, summaryName] = ['results.csv', 'grid.html', 'summary.md'].map((f) => f.replace('.', `${suffix}.`));
+  await writeFile(path.join(OUT_DIR, csvName), resultsCsv(cells));
+  await writeFile(path.join(OUT_DIR, gridName), gridHtml(pairs, preps, cells, top));
+  await writeFile(path.join(OUT_DIR, summaryName), summaryMd(pairs, preps, skipped, cells, top));
 
   const spent = cells.reduce((sum, c) => sum + c.costUsdMicros, 0);
-  console.log(`\nWrote bakeoff/out/results.csv, grid.html, summary.md. Top generator: ${top ?? 'none'}. Fal spend recorded across all runs: ${formatUsd(spent)}.`);
-  if (skipped.size) console.log(`${skipped.size} pair(s) skipped; see summary.md.`);
+  console.log(`\nWrote bakeoff/out/${csvName}, ${gridName}, ${summaryName}. Top generator: ${top ?? 'none'}. Fal spend recorded across all runs: ${formatUsd(spent)}.`);
+  if (skipped.size) console.log(`${skipped.size} pair(s) skipped; see ${summaryName}.`);
 }
 
 main()

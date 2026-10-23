@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { detectCases } from '@/lib/pipeline/cases';
+import { GENERATOR_BY_CASE, GENERATOR_CANDIDATES } from '@/lib/fal/models';
+import { detectCases, swapCase } from '@/lib/pipeline/cases';
 import { makeAnalysis } from './helpers/analysis';
 
 describe('detectCases', () => {
@@ -35,5 +36,30 @@ describe('detectCases', () => {
       crossAge: false,
       direction: null,
     });
+  });
+});
+
+describe('swapCase', () => {
+  it('maps each bake-off case', () => {
+    expect(swapCase(makeAnalysis())).toBe('case1');
+    expect(swapCase(makeAnalysis({ user: { gender: 'female' } }))).toBe('case2_m2f');
+    expect(swapCase(makeAnalysis({ subject: { gender: 'female' } }))).toBe('case2_f2m');
+    expect(swapCase(makeAnalysis({ user: { age_group: 'child' } }))).toBe('case3_a2c');
+    expect(swapCase(makeAnalysis({ subject: { age_group: 'child' } }))).toBe('case3_c2a');
+  });
+
+  it('same-gender women and unclear gender are case1', () => {
+    expect(swapCase(makeAnalysis({ subject: { gender: 'female' }, user: { gender: 'female' } }))).toBe('case1');
+    expect(swapCase(makeAnalysis({ user: { gender: 'unclear' } }))).toBe('case1');
+  });
+
+  it('age outranks gender, and a teen side is other', () => {
+    expect(swapCase(makeAnalysis({ user: { gender: 'female', age_group: 'child' } }))).toBe('case3_a2c');
+    expect(swapCase(makeAnalysis({ subject: { gender: 'female', age_group: 'child' } }))).toBe('case3_c2a');
+    expect(swapCase(makeAnalysis({ user: { age_group: 'teen' } }))).toBe('other');
+  });
+
+  it('every case has a generator from the candidates', () => {
+    for (const model of Object.values(GENERATOR_BY_CASE)) expect(GENERATOR_CANDIDATES).toContain(model);
   });
 });

@@ -48,7 +48,7 @@ export async function chooseCandidate(
   }
 }
 
-/** Try again: 3 new versions in a new round; the earlier ones stay. Takes one daily unit. */
+/** Try again: a new version in a new round; the earlier ones stay. Takes one daily unit. */
 export async function retryJob(input: z.input<typeof retrySchema>): Promise<ActionResult<{ round: number }>> {
   try {
     const { sid } = await requireSession();

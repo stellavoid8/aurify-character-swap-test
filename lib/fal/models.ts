@@ -2,6 +2,7 @@
  * fal model ids and the per-model input/output mapping. Model ids appear nowhere else in the app.
  * Endpoint ids and input field names were checked against each model's fal API page on 2026-10-21.
  */
+import type { SwapCase } from '../pipeline/cases';
 
 export const GENERATOR_CANDIDATES = [
   'fal-ai/nano-banana-pro/edit',
@@ -9,13 +10,38 @@ export const GENERATOR_CANDIDATES = [
   'fal-ai/flux-pro/kontext/max/multi',
 ] as const;
 
+/** The name the result screen shows under each image. */
+const GENERATOR_LABELS: Record<GeneratorModel, string> = {
+  'fal-ai/nano-banana-pro/edit': 'Nano Banana Pro',
+  'fal-ai/bytedance/seedream/v4.5/edit': 'Seedream 4.5',
+  'fal-ai/flux-pro/kontext/max/multi': 'FLUX Kontext Max',
+};
+
 export const REFINE_MODEL = 'fal-ai/face-swap';
 
 export type GeneratorModel = (typeof GENERATOR_CANDIDATES)[number];
 export type FalModel = GeneratorModel | typeof REFINE_MODEL;
 
-/** Replaced by the bake-off winner (prompt 8). */
-export const PRIMARY_GENERATOR: GeneratorModel = GENERATOR_CANDIDATES[0];
+/** Bake-off winner overall; the generator for cases the bake-off has no pair for. See docs/decisions/0001-generator.md. */
+export const PRIMARY_GENERATOR: GeneratorModel = 'fal-ai/bytedance/seedream/v4.5/edit';
+
+/**
+ * Per-case bake-off winners (likeness, then a by-eye check), see docs/decisions/0001-generator.md.
+ * Not used for routing: every round makes one image on each of GENERATOR_CANDIDATES.
+ */
+export const GENERATOR_BY_CASE: Record<SwapCase, GeneratorModel> = {
+  case1: 'fal-ai/nano-banana-pro/edit',
+  case2_m2f: 'fal-ai/bytedance/seedream/v4.5/edit',
+  case2_f2m: 'fal-ai/bytedance/seedream/v4.5/edit',
+  case3_a2c: 'fal-ai/bytedance/seedream/v4.5/edit',
+  case3_c2a: 'fal-ai/bytedance/seedream/v4.5/edit',
+  other: PRIMARY_GENERATOR,
+};
+
+/** A generator's display name; null for anything else (Fix the face results). */
+export function generatorLabel(model: string): string | null {
+  return (GENERATOR_LABELS as Record<string, string>)[model] ?? null;
+}
 
 export type BuildInputArgs = {
   prompt: string;

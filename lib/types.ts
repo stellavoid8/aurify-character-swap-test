@@ -67,6 +67,8 @@ export type CandidateView = {
   id: string;
   round: number;
   kind: 'generation' | 'refinement';
+  /** The generator's display name; null for Fix the face results. */
+  modelLabel: string | null;
   status: 'pending' | 'succeeded' | 'failed';
   imageUrl: string | null;
   identityScore: number | null;

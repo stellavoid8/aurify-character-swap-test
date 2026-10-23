@@ -4,9 +4,9 @@ import { cn } from '@/lib/cn';
 import { Spinner } from './Spinner';
 
 const VARIANTS = {
-  primary: 'bg-accent text-accent-ink hover:bg-accent-hover',
-  secondary: 'bg-surface text-ink border border-line hover:bg-surface-2',
-  ghost: 'bg-transparent text-ink hover:bg-surface-2',
+  primary: 'bg-linear-to-b from-accent-hover to-accent text-accent-ink shadow-glow hover:from-accent-hover hover:to-accent-hover',
+  secondary: 'bg-surface/60 text-ink border border-line backdrop-blur-md hover:bg-surface-2',
+  ghost: 'bg-transparent text-ink hover:bg-surface-2/70',
 } as const;
 
 const SIZES = {

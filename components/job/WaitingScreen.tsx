@@ -12,19 +12,19 @@ import type { JobStage, JobView } from '@/lib/types';
 
 const STEPS: { label: string; stage: JobStage }[] = [
   { label: 'Looking at your template', stage: 'analyzing' },
-  { label: 'Making 3 versions', stage: 'generating' },
-  { label: 'Picking the best match', stage: 'ranking' },
+  { label: 'Swapping you in', stage: 'generating' },
+  { label: 'Checking the likeness', stage: 'ranking' },
 ];
 
 /**
- * Try again rounds reuse the template analysis, so they skip its step and say the versions are new.
+ * Try again rounds reuse the template analysis, so they skip its step and say the picture is new.
  * The exception is a retry after the analysis itself failed: that round analyzes again.
  * Fix the face rounds never show this screen; the result screen shows their progress.
  */
 function progressSteps(stage: JobStage, round: number): ProgressStep[] {
   const steps =
     round > 1 && stage !== 'analyzing'
-      ? STEPS.slice(1).map((s) => (s.stage === 'generating' ? { ...s, label: 'Making 3 new versions' } : s))
+      ? STEPS.slice(1).map((s) => (s.stage === 'generating' ? { ...s, label: 'Swapping you in again' } : s))
       : STEPS;
   const current = stage === 'done' ? steps.length : Math.max(0, steps.findIndex((s) => s.stage === stage));
   return steps.map(({ label }, i) => ({ label, state: i < current ? 'done' : i === current ? 'active' : 'todo' }));

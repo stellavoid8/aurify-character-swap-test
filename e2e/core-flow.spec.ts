@@ -15,7 +15,7 @@ import {
 } from './helpers/flow';
 import { E2E } from './env';
 
-test('core flow: template, two photos, three versions, choose, download, try again', async ({ page }) => {
+test('core flow: template, two photos, one picture, download, try again, choose', async ({ page }) => {
   await test.step('gate', async () => {
     await page.goto('/gate');
     await expectNoHorizontalScroll(page);
@@ -42,15 +42,29 @@ test('core flow: template, two photos, three versions, choose, download, try aga
     const id = await makePicture(page);
     await expect(page.getByRole('heading', { name: 'Making your picture' })).toBeVisible();
     await expect(page.getByText('Looking at your template')).toBeVisible();
-    await expect(page.getByText('Making 3 versions')).toBeVisible();
-    await expect(page.getByText('Picking the best match')).toBeVisible();
+    await expect(page.getByText('Swapping you in')).toBeVisible();
+    await expect(page.getByText('Checking the likeness')).toBeVisible();
     await expectNoHorizontalScroll(page);
     return id;
   });
 
-  await test.step('result with 3 versions', async () => {
-    await expectResult(page, 3);
+  await test.step('result with one picture', async () => {
+    await expectResult(page, 1);
     await expect(page.getByRole('figure').filter({ hasText: 'Result' })).toBeVisible();
+    await expectNoHorizontalScroll(page);
+  });
+
+  await test.step('download', async () => {
+    const download = page.waitForEvent('download');
+    await page.getByRole('link', { name: 'Download' }).click();
+    expect((await download).suggestedFilename()).toMatch(/^character-swap-[0-9a-f]{8}-\d\.jpg$/);
+  });
+
+  await test.step('try again adds a second picture', async () => {
+    await page.getByRole('button', { name: 'Try again' }).click();
+    // One mock image can finish before the waiting screen renders, so only the outcome is checked.
+    await expectResult(page, 2);
+    await expect(page.getByText('Earlier versions')).toBeVisible();
     await expectNoHorizontalScroll(page);
   });
 
@@ -64,20 +78,6 @@ test('core flow: template, two photos, three versions, choose, download, try aga
     await saved;
     await page.reload();
     await expect(versions(page).nth(1)).toHaveAttribute('aria-checked', 'true');
-  });
-
-  await test.step('download', async () => {
-    const download = page.waitForEvent('download');
-    await page.getByRole('link', { name: 'Download' }).click();
-    expect((await download).suggestedFilename()).toMatch(/^character-swap-[0-9a-f]{8}-\d\.jpg$/);
-  });
-
-  await test.step('try again adds 3 more versions', async () => {
-    await page.getByRole('button', { name: 'Try again' }).click();
-    await expect(page.getByText('Making 3 new versions')).toBeVisible();
-    await expectResult(page, 6);
-    await expect(page.getByText('Earlier versions')).toBeVisible();
-    await expectNoHorizontalScroll(page);
   });
 });
 

@@ -20,6 +20,8 @@ const nextConfig: NextConfig = {
     ],
   },
   images: {
+    // Dev machines can be slow to reach Blob, past the optimizer's ~7s fetch timeout.
+    unoptimized: process.env.NODE_ENV === 'development',
     remotePatterns: [
       { protocol: 'https', hostname: '*.public.blob.vercel-storage.com' },
     ],

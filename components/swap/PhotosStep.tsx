@@ -167,70 +167,76 @@ export function PhotosStep({ sid, onBack }: { sid: string; onBack: () => void })
       aria-labelledby="photos-heading"
       className={cn('flex flex-col gap-6 md:pb-0', startError ? 'pb-60' : 'pb-32')}
     >
-      {templateSrc && (
-        <div className="flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element -- blob/object URLs of unknown size */}
-          <img src={templateSrc} alt="Your template photo" className="size-14 rounded-md object-cover" />
-          <Button variant="ghost" onClick={onBack}>
-            Change
-          </Button>
-        </div>
-      )}
+      <div className="flex flex-col gap-6 md:grid md:grid-cols-5 md:items-start">
+        <div className="flex flex-col gap-5 md:col-span-2">
+          {templateSrc && (
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element -- blob/object URLs of unknown size */}
+              <img src={templateSrc} alt="Your template photo" className="size-14 rounded-md object-cover ring-1 ring-line" />
+              <Button variant="ghost" onClick={onBack}>
+                Change
+              </Button>
+            </div>
+          )}
 
-      <div className="flex flex-col gap-2">
-        <h1 id="photos-heading" className="font-display text-title">
-          Add photos of yourself
-        </h1>
-        <p className="text-body text-ink-muted">
-          1 to {MAX_USER_PHOTOS} photos. More photos help us get your likeness right.
-        </p>
+          <div className="flex flex-col gap-2">
+            <h1 id="photos-heading" className="font-display text-title">
+              Add photos of yourself
+            </h1>
+            <p className="text-body text-ink-muted">
+              1 to {MAX_USER_PHOTOS} photos. More photos help us get your likeness right.
+            </p>
+          </div>
+
+          <PhotoGuidance highlight={allFailed} />
+
+          <p aria-live="polite" className="sr-only">
+            {photos.map((p, i) => describePhoto(p, i + 1)).join('. ')}
+          </p>
+
+          {overflow && (
+            <Notice tone="warning" title={ERRORS.TOO_MANY_PHOTOS.message}>
+              {ERRORS.TOO_MANY_PHOTOS.nextStep}
+            </Notice>
+          )}
+          {allFailed && (
+            <Notice tone="danger" title="None of these photos can be used yet.">
+              Check the tips above, then add another photo.
+            </Notice>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-4 md:col-span-3">
+          {photos.length < MAX_USER_PHOTOS && (
+            <Dropzone
+              multiple
+              onFiles={pick}
+              title={photos.length === 0 ? 'Choose photos of yourself' : 'Add another photo'}
+              hint="or drag them here · JPG, PNG, WebP, HEIC up to 25 MB"
+              className={photos.length > 0 ? 'min-h-32 md:min-h-36' : undefined}
+            />
+          )}
+
+          {photos.length > 0 && (
+            <ul aria-label="Your photos" className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {photos.map((slot, i) => (
+                <li key={slot.localId}>
+                  <PhotoThumb
+                    slot={slot}
+                    index={i + 1}
+                    isReference={slot.localId === referenceLocalId}
+                    onRemove={() => remove(slot.localId)}
+                    onRetry={files.current.has(slot.localId) ? () => retry(slot.localId) : undefined}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
-      <PhotoGuidance highlight={allFailed} />
-
-      <p aria-live="polite" className="sr-only">
-        {photos.map((p, i) => describePhoto(p, i + 1)).join('. ')}
-      </p>
-
-      {overflow && (
-        <Notice tone="warning" title={ERRORS.TOO_MANY_PHOTOS.message}>
-          {ERRORS.TOO_MANY_PHOTOS.nextStep}
-        </Notice>
-      )}
-      {allFailed && (
-        <Notice tone="danger" title="None of these photos can be used yet.">
-          Check the tips above, then add another photo.
-        </Notice>
-      )}
-
-      {photos.length < MAX_USER_PHOTOS && (
-        <Dropzone
-          multiple
-          onFiles={pick}
-          title={photos.length === 0 ? 'Choose photos of yourself' : 'Add another photo'}
-          hint="or drag them here · JPG, PNG, WebP, HEIC up to 25 MB"
-          className={photos.length > 0 ? 'min-h-32 md:min-h-40' : undefined}
-        />
-      )}
-
-      {photos.length > 0 && (
-        <ul aria-label="Your photos" className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {photos.map((slot, i) => (
-            <li key={slot.localId}>
-              <PhotoThumb
-                slot={slot}
-                index={i + 1}
-                isReference={slot.localId === referenceLocalId}
-                onRemove={() => remove(slot.localId)}
-                onRetry={files.current.has(slot.localId) ? () => retry(slot.localId) : undefined}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
-
       {/* Fixed on phones, sticky on desktop: the main action stays in view however many photos there are. */}
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface p-4 md:sticky md:-mx-4 md:rounded-t-lg md:px-4">
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface/80 p-4 backdrop-blur-xl md:sticky md:rounded-lg md:border md:px-5 md:py-3">
         {startError && (
           <Notice
             tone={rateLimited ? 'warning' : 'danger'}
