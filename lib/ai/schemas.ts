@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Vision-LLM output shapes. Each schema is both the runtime validator and the JSON schema sent
- * as `output_config.format`, so the model is constrained to exactly these fields.
+ * Vision-LLM output shapes. Each schema is both the runtime validator and the input schema of the
+ * strict `submit` tool, so the model is constrained to exactly these fields.
  * Photo and candidate `index` values are 1-based and match the "User photo N" / "Candidate N" labels.
  */
 
