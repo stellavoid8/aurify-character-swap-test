@@ -4,7 +4,8 @@ exports[`buildPrompt > a 2-person template leaves the other person alone 1`] = `
 "Image 1 is the scene. Images 2–3 all show the same real person: the new subject.
 Replace the woman on the left in image 1 with the person from images 2–3. Leave every other person in image 1 unchanged.
 Keep everything else from image 1 exactly: the pose (mid-air, knees tucked, arms out), the action (jumping off the end of the pier), the camera angle (low angle from the side), the framing (full body, wide shot), the lighting (late afternoon sun from the left) and the background (a wooden pier over a lake).
-The new subject is a man aged 30-40, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not blend their face with the original person's face.
+Do not move the camera: keep the viewpoint, height and distance of image 1, without re-staging the shot.
+The new subject is a man aged 30-40, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not make them broader, more muscular, slimmer or taller than they are. Do not blend their face with the original person's face.
 Clothing may be adjusted to fit the new subject's body while keeping its style and colours. The hairstyle follows the new subject.
 Photorealistic, matching the grain, sharpness and colour of image 1."
 `;
@@ -13,7 +14,8 @@ exports[`buildPrompt > case 1 (same gender and age) has no body clause 1`] = `
 "Image 1 is the scene. Images 2–3 all show the same real person: the new subject.
 Replace the man in the red shorts in image 1 with the person from images 2–3.
 Keep everything else from image 1 exactly: the pose (mid-air, knees tucked, arms out), the action (jumping off the end of the pier), the camera angle (low angle from the side), the framing (full body, wide shot), the lighting (late afternoon sun from the left) and the background (a wooden pier over a lake).
-The new subject is a man aged 30-40, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not blend their face with the original person's face.
+Do not move the camera: keep the viewpoint, height and distance of image 1, without re-staging the shot.
+The new subject is a man aged 30-40, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not make them broader, more muscular, slimmer or taller than they are. Do not blend their face with the original person's face.
 Clothing may be adjusted to fit the new subject's body while keeping its style and colours. The hairstyle follows the new subject.
 Photorealistic, matching the grain, sharpness and colour of image 1."
 `;
@@ -22,7 +24,8 @@ exports[`buildPrompt > case 2 (cross-gender) adds the body clause 1`] = `
 "Image 1 is the scene. Images 2–3 all show the same real person: the new subject.
 Replace the man in the red shorts in image 1 with the person from images 2–3.
 Keep everything else from image 1 exactly: the pose (mid-air, knees tucked, arms out), the action (jumping off the end of the pier), the camera angle (low angle from the side), the framing (full body, wide shot), the lighting (late afternoon sun from the left) and the background (a wooden pier over a lake).
-The new subject is a woman aged 30-40, slim build, long blonde hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not blend their face with the original person's face.
+Do not move the camera: keep the viewpoint, height and distance of image 1, without re-staging the shot.
+The new subject is a woman aged 30-40, slim build, long blonde hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not make them broader, more muscular, slimmer or taller than they are. Do not blend their face with the original person's face.
 Do not transfer the original subject's body. Rebuild the body with the new subject's own proportions as a woman, in the same pose.
 Clothing may be adjusted to fit the new subject's body while keeping its style and colours. The hairstyle follows the new subject.
 Photorealistic, matching the grain, sharpness and colour of image 1."
@@ -32,7 +35,8 @@ exports[`buildPrompt > case 3 adult_to_child describes a child body 1`] = `
 "Image 1 is the scene. Images 2–3 all show the same real person: the new subject.
 Replace the man in the red shorts in image 1 with the person from images 2–3.
 Keep everything else from image 1 exactly: the pose (mid-air, knees tucked, arms out), the action (jumping off the end of the pier), the camera angle (low angle from the side), the framing (full body, wide shot), the lighting (late afternoon sun from the left) and the background (a wooden pier over a lake).
-The new subject is a girl aged 7-9, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not blend their face with the original person's face.
+Do not move the camera: keep the viewpoint, height and distance of image 1, without re-staging the shot.
+The new subject is a girl aged 7-9, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not make them broader, more muscular, slimmer or taller than they are. Do not blend their face with the original person's face.
 Do not transfer the original subject's body. Rebuild the body with the new subject's own proportions as a girl: a child's height, head-to-body ratio and limb length, in the same pose.
 Clothing may be adjusted to fit the new subject's body while keeping its style and colours. The hairstyle follows the new subject.
 Photorealistic, matching the grain, sharpness and colour of image 1."
@@ -42,7 +46,8 @@ exports[`buildPrompt > case 3 child_to_adult keeps the adult age in the face 1`]
 "Image 1 is the scene. Images 2–3 all show the same real person: the new subject.
 Replace the man in the red shorts in image 1 with the person from images 2–3.
 Keep everything else from image 1 exactly: the pose (mid-air, knees tucked, arms out), the action (jumping off the end of the pier), the camera angle (low angle from the side), the framing (full body, wide shot), the lighting (late afternoon sun from the left) and the background (a wooden pier over a lake).
-The new subject is a man aged 30-40, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not blend their face with the original person's face.
+Do not move the camera: keep the viewpoint, height and distance of image 1, without re-staging the shot.
+The new subject is a man aged 30-40, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not make them broader, more muscular, slimmer or taller than they are. Do not blend their face with the original person's face.
 Do not transfer the original subject's body. Rebuild the body with the new subject's own proportions as a man: an adult's height and proportions, with the adult's real age in the face, not de-aged, in the same pose.
 Clothing may be adjusted to fit the new subject's body while keeping its style and colours. The hairstyle follows the new subject.
 Photorealistic, matching the grain, sharpness and colour of image 1."
@@ -52,7 +57,8 @@ exports[`buildPrompt > lists held objects 1`] = `
 "Image 1 is the scene. Images 2–3 all show the same real person: the new subject.
 Replace the man in the red shorts in image 1 with the person from images 2–3.
 Keep everything else from image 1 exactly: the pose (mid-air, knees tucked, arms out), the action (jumping off the end of the pier), the tennis racket and yellow ball in their hands, the camera angle (low angle from the side), the framing (full body, wide shot), the lighting (late afternoon sun from the left) and the background (a wooden pier over a lake).
-The new subject is a man aged 30-40, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not blend their face with the original person's face.
+Do not move the camera: keep the viewpoint, height and distance of image 1, without re-staging the shot.
+The new subject is a man aged 30-40, slim build, short dark hair. Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–3. Do not make them broader, more muscular, slimmer or taller than they are. Do not blend their face with the original person's face.
 Clothing may be adjusted to fit the new subject's body while keeping its style and colours. The hairstyle follows the new subject.
 Photorealistic, matching the grain, sharpness and colour of image 1."
 `;

@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { candidates, jobRounds, jobs, providerCalls, uploads } from '@/lib/db/schema';
-import type { Face } from '@/lib/types';
+import type { Face, FaceBox } from '@/lib/types';
 import { createTestDb, type TestDb } from './helpers/db';
 
 let testDb: TestDb;
@@ -78,7 +78,10 @@ beforeEach(async () => {
  * A job in `ranking` with one succeeded candidate per entry of `results`, completed in that order.
  * Each entry lists the faces in that candidate's image as [centre x, centre y, cosine to the user].
  */
-async function seedRound(results: [number, number, number][][]) {
+async function seedRound(
+  results: [number, number, number][][],
+  { templateFaces = [{ box: [0.6, 0.4, 0.2, 0.2], score: 0.9, landmarks: [] }] }: { templateFaces?: FaceBox[] } = {},
+) {
   const [template] = await testDb
     .insert(uploads)
     .values({
@@ -91,7 +94,7 @@ async function seedRound(results: [number, number, number][][]) {
       height: 100,
       bytes: 1,
       // The subject stands on the right.
-      faces: [{ box: [0.6, 0.4, 0.2, 0.2], score: 0.9, landmarks: [] }],
+      faces: templateFaces,
       subjectFaceIndex: 0,
     })
     .returning();
@@ -162,12 +165,52 @@ describe('rankRound via onRoundGenerated', () => {
 
   it('scores the face nearest the template subject, not the best-matching one', async () => {
     // Left face is a near-perfect match but sits where the subject isn't; the right face is the swap.
-    const { ids, roundId } = await seedRound([[[20, 50, 0.99], [70, 50, 0.4]], [[70, 50, 0.6]]]);
+    const { ids, roundId } = await seedRound([[[20, 50, 0.99], [70, 50, 0.4]], [[70, 50, 0.6]]], {
+      templateFaces: [
+        { box: [0.6, 0.4, 0.2, 0.2], score: 0.9, landmarks: [] },
+        { box: [0.1, 0.4, 0.2, 0.2], score: 0.9, landmarks: [] },
+      ],
+    });
     await onRoundGenerated(roundId);
 
     const [c1, c2] = await Promise.all(ids.map(candidate));
     expect(c1.identityScore).toBeCloseTo(0.4, 5);
     expect(c2.rank).toBe(1);
+  });
+
+  it('leaves out the likeness of a result with more faces than the template and ranks it last', async () => {
+    // Candidate 1 is a collage: its swap panel matches the user best, but the template has one face.
+    const { jobId, roundId, ids } = await seedRound([[[70, 50, 0.9], [20, 50, 0.9]], [[70, 50, 0.5]], []]);
+    await onRoundGenerated(roundId);
+
+    const [c1, c2, c3] = await Promise.all(ids.map(candidate));
+    expect(c2.rank).toBe(1);
+    expect(c1).toMatchObject({ rank: 2, identityScore: null });
+    expect(c3.rank).toBe(3);
+    expect((await jobRow(jobId)).chosenCandidateId).toBe(ids[1]);
+    const calls = await testDb.select().from(providerCalls).where(eq(providerCalls.model, 'mock-identity'));
+    expect(calls.find((c) => c.candidateId === ids[0])?.meta).toMatchObject({ reason: 'extra_faces', faceCount: 2, templateFaceCount: 1 });
+  });
+
+  it('ranks a result that kept the template face below every clean result', async () => {
+    // The template subject's embedding has cosine 0.6 with the user's: someone who looks alike.
+    const templateSubject = withCosine(0.6);
+    scene.images.set('https://example.test/t.jpg', [{ face: faceAt(70, 50), embedding: templateSubject }]);
+    const { roundId, ids } = await seedRound([[[70, 50, 0.6]], [[70, 50, 0.45]]]);
+    // Candidate 1 is the template subject unchanged; candidate 2 is a weaker but real swap.
+    scene.images.get('https://example.test/c1.jpg')![0].embedding = templateSubject;
+    scene.images.get('https://example.test/c2.jpg')![0].embedding = [0.45, -Math.sqrt(1 - 0.45 ** 2), 0, 0];
+    await onRoundGenerated(roundId);
+
+    const [c1, c2] = await Promise.all(ids.map(candidate));
+    expect(c2.rank).toBe(1);
+    expect(c1.rank).toBe(2);
+    // Its likeness is still measured, so Fix the face can show before and after.
+    expect(c1.identityScore).toBeCloseTo(0.6, 5);
+    expect(rateAction).not.toHaveBeenCalled();
+    const calls = await testDb.select().from(providerCalls).where(eq(providerCalls.model, 'mock-identity'));
+    expect(calls.find((c) => c.candidateId === ids[0])?.meta).toMatchObject({ reason: 'template_face' });
+    expect(calls.find((c) => c.candidateId === ids[1])?.meta).toMatchObject({ reason: 'scored' });
   });
 
   it('settles a close top two with one action rating', async () => {

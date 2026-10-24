@@ -95,6 +95,8 @@ export const FACE_MIN_SIDE_PX = 64;
 export const FACE_MIN_SIDE_FRAC = 0.06;
 /** Below this cosine similarity to the other photos, a user photo is likely a different person. */
 export const MISMATCH_COSINE = 0.35;
+/** A result face at least this close to the template subject's, and closer to it than to the user's, kept the template person. */
+export const TEMPLATE_FACE_COSINE = 0.35;
 /** Identity scores closer than this are a tie; action score decides. */
 export const TIE_BREAK_DELTA = 0.03;
 /** In a tie, each action-score point (1–5) is worth this much identity. */

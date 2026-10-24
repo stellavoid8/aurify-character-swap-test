@@ -86,6 +86,8 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('Leave every other person in image 1 unchanged.');
     expect(prompt).toContain('Show their real face, facial structure, skin tone, hair, body build and age exactly as in images 2–5.');
     expect(prompt).toContain("Do not blend their face with the original person's face.");
+    expect(prompt).toContain('Do not make them broader, more muscular, slimmer or taller than they are.');
+    expect(prompt).toContain('Do not move the camera');
     expect(prompt).toContain(BODY);
     expect(prompt).toContain("a child's height, head-to-body ratio and limb length");
     expect(prompt).toContain('Photorealistic, matching the grain');

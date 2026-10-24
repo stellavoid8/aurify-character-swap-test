@@ -3,8 +3,8 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import { ai } from '../ai';
 import { db } from '../db';
 import { candidates, jobRounds, jobs, uploads, type Candidate, type Upload } from '../db/schema';
-import { cosine, faceEngine } from '../face';
-import { FACE_MIN_SCORE, TIE_BREAK_ACTION_WEIGHT, TIE_BREAK_DELTA } from '../limits';
+import { cosine, faceEngine, type FaceCallContext } from '../face';
+import { FACE_MIN_SCORE, TEMPLATE_FACE_COSINE, TIE_BREAK_ACTION_WEIGHT, TIE_BREAK_DELTA } from '../limits';
 import { fetchObject } from '../storage';
 import { recordCall } from '../telemetry';
 import type { Face } from '../types';
@@ -12,14 +12,20 @@ import type { Face } from '../types';
 /**
  * Picks the round's best version. Each succeeded candidate is scored by the cosine similarity of
  * its subject's face to the reference photo's embedding; a near tie at the top is settled by the
- * vision LLM's action rating. Never throws while the round has a result: if ranking itself
- * breaks, the earliest result wins unscored.
+ * vision LLM's action rating. Two failures the score alone can't see rank below every clean
+ * result: a version that kept the template person's face (`template_face`), and one with more faces
+ * than the template, such as a collage or added passers-by (`extra_faces`, likeness left out, since
+ * any one of its faces can match the user). Never throws while the round has a result: if ranking
+ * itself breaks, the earliest result wins unscored.
  */
 
 /** Why a candidate's identity score is what it is; stored on its `ranking` (or `refining`) provider_calls row. */
-type ScoreReason = 'scored' | 'no_face' | 'no_reference' | 'error';
+type ScoreReason = 'scored' | 'template_face' | 'extra_faces' | 'no_face' | 'no_reference' | 'error';
 
-type Scored = { candidate: Candidate; identity: number | null; action: number | null };
+type Scored = { candidate: Candidate; identity: number | null; action: number | null; reason: ScoreReason };
+
+/** What a round's results are checked against besides the user: the template's face count and its subject's embedding. */
+type TemplateChecks = { faceCount: number; subject: number[] | null };
 
 /** Returns the rank-1 candidate's id, or null when the round has no succeeded candidate. */
 export async function rankRound(roundId: string): Promise<string | null> {
@@ -34,7 +40,7 @@ export async function rankRound(roundId: string): Promise<string | null> {
     return await scoreAndRank(roundId, succeeded);
   } catch (err) {
     console.error('[rank] ranking failed; keeping the earliest result', { roundId, err: err instanceof Error ? err.message : err });
-    await writeRanks(succeeded.map((candidate) => ({ candidate, identity: null, action: null })), null).catch((writeErr) =>
+    await writeRanks(succeeded.map((candidate) => ({ candidate, identity: null, action: null, reason: 'error' as const })), null).catch((writeErr) =>
       console.error('[rank] fallback rank write failed', { roundId, writeErr }),
     );
     return succeeded[0].id;
@@ -60,7 +66,7 @@ async function identityTargetFor(jobId: string): Promise<IdentityTarget> {
 export async function scoreIdentity(candidate: Candidate, stage: string): Promise<number | null> {
   try {
     const { reference, target } = await identityTargetFor(candidate.jobId);
-    return await identityScore(candidate, reference, target, stage);
+    return (await identityScore(candidate, reference, target, stage)).score;
   } catch (err) {
     console.error('[rank] identity target unavailable', { candidateId: candidate.id, err: err instanceof Error ? err.message : err });
     return null;
@@ -77,7 +83,7 @@ export async function scoreVideoIdentity(candidate: Candidate, frameUrls: string
     const { reference, target } = await identityTargetFor(candidate.jobId);
     const scores: number[] = [];
     for (const url of frameUrls) {
-      const score = await identityScore(candidate, reference, target, 'animating', url);
+      const { score } = await identityScore(candidate, reference, target, 'animating', url);
       if (score !== null) scores.push(score);
     }
     return scores.length > 0 ? Math.min(...scores) : null;
@@ -90,16 +96,25 @@ export async function scoreVideoIdentity(candidate: Candidate, frameUrls: string
 async function scoreAndRank(roundId: string, succeeded: Candidate[]): Promise<string> {
   const [round] = await db.select().from(jobRounds).where(eq(jobRounds.id, roundId));
   const { template, reference, target } = await identityTargetFor(round.jobId);
+  const checks = await templateChecks(template, target, { jobId: round.jobId, roundId, stage: 'ranking' });
 
   const scored: Scored[] = [];
   // One at a time: the face models are CPU-bound, so parallel passes would only contend.
   for (const candidate of succeeded) {
-    scored.push({ candidate, identity: await identityScore(candidate, reference, target, 'ranking'), action: null });
+    const { score, reason } = await identityScore(candidate, reference, target, 'ranking', candidate.imageUrl!, checks);
+    scored.push({ candidate, identity: score, action: null, reason });
   }
   scored.sort(byIdentity);
 
   const [top1, top2] = scored;
-  if (top2 && top1.identity !== null && top2.identity !== null && top1.identity - top2.identity < TIE_BREAK_DELTA) {
+  if (
+    top2 &&
+    top1.reason === 'scored' &&
+    top2.reason === 'scored' &&
+    top1.identity !== null &&
+    top2.identity !== null &&
+    top1.identity - top2.identity < TIE_BREAK_DELTA
+  ) {
     await breakTie(template, top1, top2);
     const weighted = (s: Scored) => s.identity! + TIE_BREAK_ACTION_WEIGHT * (s.action ?? 0);
     if (weighted(top2) > weighted(top1)) [scored[0], scored[1]] = [top2, top1];
@@ -109,10 +124,30 @@ async function scoreAndRank(roundId: string, succeeded: Candidate[]): Promise<st
   return scored[0].candidate.id;
 }
 
-/** Highest identity first, unscored last; earlier results win ties, since `succeeded` is in completion order. */
+/** Clean results first, then ones that kept the template's face, then unscored; earlier results win ties, since `succeeded` is in completion order. */
 function byIdentity(a: Scored, b: Scored): number {
-  if (a.identity === null || b.identity === null) return (a.identity === null ? 1 : 0) - (b.identity === null ? 1 : 0);
+  const tier = (s: Scored) => (s.identity === null ? 2 : s.reason === 'template_face' ? 1 : 0);
+  if (tier(a) !== tier(b)) return tier(a) - tier(b);
+  if (a.identity === null || b.identity === null) return 0;
   return b.identity - a.identity;
+}
+
+/**
+ * The template's confident face count, and its subject's embedding (null when it has no subject face
+ * or embedding it fails, which only skips the template-face check).
+ */
+async function templateChecks(template: Upload, target: [number, number] | null, ctx: FaceCallContext): Promise<TemplateChecks> {
+  const faceCount = template.faces.filter((face) => face.score >= FACE_MIN_SCORE).length;
+  if (!target) return { faceCount, subject: null };
+  try {
+    const jpeg = await fetchObject(template.url!);
+    const { faces, width, height } = await faceEngine.analyzeImage(jpeg, ctx);
+    const face = pickFace(faces, width, height, target);
+    return { faceCount, subject: face ? await faceEngine.embedFace(jpeg, face, ctx) : null };
+  } catch (err) {
+    console.error('[rank] template subject embedding failed', { templateId: template.id, err: err instanceof Error ? err.message : err });
+    return { faceCount, subject: null };
+  }
 }
 
 /** Normalized centre of the template's subject face, or null when the template has none. */
@@ -137,7 +172,8 @@ function pickFace(faces: Face[], width: number, height: number, target: [number,
 
 /**
  * Cosine similarity to the reference, or null (with the reason recorded) when it can't be measured.
- * Scores the candidate's image, or `imageUrl` when given (a frame of a video result).
+ * Scores the candidate's image, or `imageUrl` when given (a frame of a video result). With `checks`
+ * (ranking only), also flags a result with extra faces or the template subject's face.
  */
 async function identityScore(
   candidate: Candidate,
@@ -145,10 +181,13 @@ async function identityScore(
   target: [number, number] | null,
   stage: string,
   imageUrl: string = candidate.imageUrl!,
-): Promise<number | null> {
+  checks?: TemplateChecks,
+): Promise<{ score: number | null; reason: ScoreReason }> {
   const ctx = { jobId: candidate.jobId, roundId: candidate.roundId, candidateId: candidate.id, stage };
   const started = performance.now();
   let score: number | null = null;
+  let templateSimilarity: number | null = null;
+  let faceCount: number | null = null;
   let reason: ScoreReason;
   try {
     if (!reference) {
@@ -157,11 +196,21 @@ async function identityScore(
       const jpeg = await fetchObject(imageUrl);
       const { faces, width, height } = await faceEngine.analyzeImage(jpeg, ctx);
       const face = pickFace(faces, width, height, target);
-      if (face) {
-        score = cosine(await faceEngine.embedFace(jpeg, face, ctx), reference);
-        reason = 'scored';
-      } else {
+      faceCount = faces.filter((f) => f.score >= FACE_MIN_SCORE).length;
+      if (!face) {
         reason = 'no_face';
+      } else {
+        const embedding = await faceEngine.embedFace(jpeg, face, ctx);
+        score = cosine(embedding, reference);
+        reason = 'scored';
+        if (checks?.subject) {
+          templateSimilarity = cosine(embedding, checks.subject);
+          if (templateSimilarity >= TEMPLATE_FACE_COSINE && templateSimilarity > score) reason = 'template_face';
+        }
+        if (checks && faceCount > Math.max(checks.faceCount, 1)) {
+          reason = 'extra_faces';
+          score = null;
+        }
       }
     }
   } catch (err) {
@@ -175,9 +224,9 @@ async function identityScore(
     status: reason === 'error' ? 'error' : 'ok',
     latencyMs: performance.now() - started,
     costUsdMicros: 0,
-    meta: { identityScore: score, reason },
+    meta: { identityScore: score, reason, ...(checks && { templateSimilarity, faceCount, templateFaceCount: checks.faceCount }) },
   });
-  return score;
+  return { score, reason };
 }
 
 /** Asks the vision LLM which of the top two better matches the template's action. A failed call keeps identity order. */

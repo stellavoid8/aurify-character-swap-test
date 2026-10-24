@@ -89,6 +89,7 @@ function render(input: BuildPromptInput, label: string, s: SceneFill, u: UserFil
       `, ${part('camera angle', s.cameraAngle)}, ${part('framing', s.framing)}, ${part('lighting', s.lighting)}` +
       ` and ${part('background', s.scene)}.`,
   );
+  lines.push('Do not move the camera: keep the viewpoint, height and distance of image 1, without re-staging the shot.');
 
   const traits = [
     u.ageRange && `aged ${u.ageRange}`,
@@ -98,6 +99,7 @@ function render(input: BuildPromptInput, label: string, s: SceneFill, u: UserFil
   lines.push(
     `The new subject is ${person}${traits.length ? ` ${traits.join(', ')}` : ''}.` +
       ` Show their real face, facial structure, skin tone, hair, body build and age exactly as in ${refs}.` +
+      ' Do not make them broader, more muscular, slimmer or taller than they are.' +
       " Do not blend their face with the original person's face.",
   );
 
